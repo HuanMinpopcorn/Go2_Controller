@@ -1,42 +1,40 @@
 import mujoco
 import numpy as np
+import threading
+import time
+
 from unitree_sdk2py.core.channel import (
     ChannelPublisher, ChannelSubscriber, ChannelFactoryInitialize
 )
-import time
-
-
-
-from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_
-from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowState_
-from unitree_sdk2py.idl.unitree_go.msg.dds_ import SportModeState_
-
-
-from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowCmd_
-from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowState_ 
-from unitree_sdk2py.idl.default import unitree_go_msg_dds__SportModeState_
-
+from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_, LowState_, SportModeState_
 from read_JointState import read_JointState
-from read_TaskSpace import read_TaskSpace
+
 
 class Kinematics:
     def __init__(self, xml_path):
         """
         Initializes the MuJoCo model and data.
-        
+
         Parameters:
             xml_path (str): Path to the MuJoCo XML file for the robot.
         """
+        # ChannelFactoryInitialize(1, "lo")  # Initialize communication channel
         self.model = mujoco.MjModel.from_xml_path(xml_path)
         self.data = mujoco.MjData(self.model)
-
+        self.joint_angles = np.zeros(self.model.nq)  # Store current joint angles
+        self.joint_state_reader = read_JointState()  # Initialize joint state reader
+        self.update_thread = None  # Thread for continuous updates
+        self.running = False  # Control flag for the thread
+        
+    
     def set_joint_angles(self, joint_angles):
         """
         Sets the joint angles in the MuJoCo qpos array.
-        
+
         Parameters:
             joint_angles (np.ndarray): Array of joint positions to be set.
         """
+        self.joint_angles = joint_angles
         self.data.qpos[:len(joint_angles)] = joint_angles
 
     def run_fk(self):
@@ -46,84 +44,84 @@ class Kinematics:
     def get_body_state(self, body_name):
         """
         Retrieves the position and orientation of the specified body.
-        
+
         Parameters:
             body_name (str): Name of the body to retrieve the state for.
-        
+
         Returns:
             dict: Contains 3D position and 3x3 orientation matrix of the body.
         """
         body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
-
-        # Retrieve position and orientation
         position = np.copy(self.data.xpos[body_id])  # 3D position
         orientation = np.copy(self.data.xmat[body_id].reshape(3, 3))  # 3x3 rotation matrix
-
-        return {"position": position, "orientation": orientation}
+        configuration = np.eye(4)
+        configuration[:3, :3] = orientation
+        configuration[:3, 3] = position
+        return {"position": position, "orientation": orientation, "configuration": configuration}
 
     def get_jacobian(self, body_name):
         """
         Computes the Jacobian matrix for a given body.
-        
+
         Parameters:
             body_name (str): Name of the body to compute the Jacobian for.
-        
+
         Returns:
             dict: Contains the translational and rotational Jacobians.
         """
         body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
-
-        # Prepare storage for Jacobians (size: 3x(number of DOF))
-        J_pos = np.zeros((3, self.model.nv))  # Translational Jacobian
-        J_rot = np.zeros((3, self.model.nv))  # Rotational Jacobian
-
-        # Compute the Jacobian matrices
+        J_pos = np.zeros((3, self.model.nv))
+        J_rot = np.zeros((3, self.model.nv))
         mujoco.mj_jacBody(self.model, self.data, J_pos, J_rot, body_id)
-
-        return {"J_pos": J_pos, "J_rot": J_rot}
-
-
-    def get_kinematics(self, body_name):
-        """
-        Retrieves the position, orientation, and Jacobians for a given body.
-
-        Parameters:
-            body_name (str): Name of the body (e.g., 'FL_foot', 'FR_foot').
-
-        Returns:
-            dict: Contains position, orientation, translational Jacobian, and rotational Jacobian of the body.
-        """
-        # Retrieve body state
-        state = self.get_body_state(body_name)
-
-        # Retrieve Jacobian
-        jacobian = self.get_jacobian(body_name)
-
-        # Combine all kinematic information into a struct
-        return {
-            "position": state["position"],
-            "orientation": state["orientation"],
-            "J_pos": jacobian["J_pos"],
-            "J_rot": jacobian["J_rot"]
-        }
+        Jacobian = np.hstack((J_pos, J_rot))
+        return {"J_pos": J_pos, "J_rot": J_rot, "Jacobian": Jacobian}
 
 
     def print_kinematics(self, body_name):
         """
-        Prints the position, orientation, and Jacobians for a given body.
-        
+        Prints the kinematic data of a given body.
+
         Parameters:
-            body_name (str): Name of the body (e.g., 'FL_foot', 'FR_foot').
+            body_name (str): Name of the body (e.g., 'FL_foot').
         """
-        # Retrieve body state
         state = self.get_body_state(body_name)
+        jacobian = self.get_jacobian(body_name)
         print(f"\n{body_name} Position: {state['position']}")
         print(f"{body_name} Orientation:\n{state['orientation']}")
-
-        # Retrieve and print Jacobian
-        jacobian = self.get_jacobian(body_name)
         print(f"{body_name} Jacobian (Translation):\n{jacobian['J_pos']}")
         print(f"{body_name} Jacobian (Rotation):\n{jacobian['J_rot']}")
+
+    def update_joint_angles(self):
+        """
+        Continuously updates the joint angles in the background.
+        """
+        while self.running:
+            self.joint_angles = self.joint_state_reader.joint_angles
+            self.set_joint_angles(self.joint_angles)
+            self.run_fk()
+            time.sleep(0.01)  # Control update frequency
+
+    def start_joint_updates(self):
+        """Starts a background thread to continuously update joint angles."""
+        if not self.running:
+            self.running = True
+            self.update_thread = threading.Thread(target=self.update_joint_angles)
+            self.update_thread.start()
+
+    def stop_joint_updates(self):
+        """Stops the background joint update thread."""
+        if self.running:
+            self.running = False
+            self.update_thread.join()
+
+    def get_current_joint_angles(self):
+        """
+        Retrieves the latest joint angles.
+
+        Returns:
+            np.ndarray: Array of current joint angles.
+        """
+        return self.joint_angles
 
 
 # Example Usage
@@ -132,23 +130,27 @@ if __name__ == "__main__":
     ROBOT_SCENE = "../unitree_mujoco/unitree_robots/go2/scene.xml"
     kinematics = Kinematics(ROBOT_SCENE)
 
-    # Initialize the channel subscriber
-    ChannelFactoryInitialize(1, "lo")
-    # Initialize the read_TaskSpace and read_JointState classes
-    joint_state = read_JointState()
+    # run the kinematics with a specific joint position
+    stand_up_joint_pos = np.array([
+        0.052, 1.12, -2.10, -0.052, 1.12, -2.10,
+        0.052, 1.12, -2.10, -0.052, 1.12, -2.10
+    ], dtype=float)
 
-    while True:
-        # low_state_handler = joint_state.low_state_handler()
-        joint_angles = joint_state.joint_angles
-        print(joint_angles)
-        # Set joint angles and run FK
-        kinematics.set_joint_angles(joint_angles)
-        kinematics.run_fk()
-        List of feet to analyze
-        feet = ["FL_foot", "FR_foot", "RL_foot", "RR_foot"]
+    kinematics.set_joint_angles(stand_up_joint_pos)
+    kinematics.run_fk()
+    kinematics.print_kinematics("FL_foot")
 
-        # Compute and print kinematics for each foot
-        for foot in feet:
-            kinematics.print_kinematics(foot)
-        
-        time.sleep(1.0)
+
+    # run continuous joint updates in the background
+    # Start continuous joint updates in the background
+    
+    # kinematics.start_joint_updates()
+
+    # try:
+    #     while True:
+    #         # Print kinematics for 'FL_foot'
+    #         kinematics.print_kinematics("FL_foot")
+    #         time.sleep(1.0)  # Adjust the frequency as needed
+    # except KeyboardInterrupt:
+    #     # Gracefully stop the joint update thread on exit
+    #     kinematics.stop_joint_updates()

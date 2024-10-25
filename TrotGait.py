@@ -72,6 +72,7 @@ class TrotGaitController:
             0.0473455, 1.22187, -2.44375, -0.0473455, 1.22187, -2.44375
         ], dtype=float)
 
+
         running_time = 0.0
         while True:
             # Check if the robot is at the target body height
@@ -88,67 +89,55 @@ class TrotGaitController:
             self.cmd.crc = self.crc.Crc(self.cmd)
             self.pub.Write(self.cmd)
             time.sleep(self.dt)
-
-
-
-    def reference_path_generator(self, time_elapsed, body_name):
-        """
-        Generate the reference Cartesian path for a given leg during the gait cycle.
-
-        Parameters:
-            time_elapsed (float): Elapsed time since gait start.
-            body_name (str): Name of the leg (e.g., 'FL_foot').
-
-        Returns:
-            np.ndarray: Desired joint angles for the leg using IK.
-        """
-        # Define the gait cycle parameters
-        cycle_time = 2 * self.swing_time  # Full gait cycle (swing + stance)
-        phase = (time_elapsed % cycle_time) / cycle_time  # Normalize phase [0, 1]
-
-        # Get the current position of the leg (from FK)
-        current_pos = self.Update_FK(body_name)["position"]
         
-        # Initialize the desired foot position
-        x, y, z = current_pos
 
-        # Sideways position (left vs right legs)
-        y = 0.1 if "L" in body_name else -0.1  # Adjust lateral offset for left or right leg
-
-        if phase < 0.5:
-            # Swing phase: Foot is lifted and moves forward
-            swing_phase = 2 * phase  # Normalize to [0, 1] for the swing phase
-            x += swing_phase * self.step_length  # Move forward smoothly
-            z = self.swing_height * np.sin(np.pi * swing_phase)  # Lift foot during swing
-        else:
-            # Stance phase: Foot is on the ground and moves backward
-            stance_phase = 2 * (phase - 0.5)  # Normalize to [0, 1] for the stance phase
-            x -= stance_phase * self.step_length  # Move backward
-            z = 0.0  # Foot stays on the ground
-
-        # Desired Cartesian foot position [x, y, z]
-        desired_pos = np.array([x, y, self.body_height + z])
-
-        # Use Inverse Kinematics to get the desired joint angles for this position
-        joint_angles = self.solve_ik(body_name, desired_pos)
-
-        return joint_angles
+                                                                                                                                                                                                                                                                              
 
 
 
-    def Update_FK(self,body_name):
-        """
-        Update the forward kinematics of the robot.
-        """
-        # Get the current joint angles
-        current_joint_state = np.zeros(12)
-        for i in range(12):
-            current_joint_state[i] = joint_state.motor_state[i]
-        # feed the joint angles to the kinematics class
-        self.kinematics.set_joint_angles(current_joint_state)
-        self.kinematics.run_fk()
-        body_kinematics = self.kinematics.get_kinematics(body_name)
-        return body_kinematics
+    # def reference_path_generator(self, time_elapsed, body_name):
+    #     """
+    #     Generate the reference Cartesian path for a given leg during the gait cycle.
+
+    #     Parameters:
+    #         time_elapsed (float): Elapsed time since gait start.
+    #         body_name (str): Name of the leg (e.g., 'FL_foot').
+
+    #     Returns:
+    #         np.ndarray: Desired joint angles for the leg using IK.
+    #     """
+    #     # Define the gait cycle parameters
+    #     cycle_time = 2 * self.swing_time  # Full gait cycle (swing + stance)
+    #     phase = (time_elapsed % cycle_time) / cycle_time  # Normalize phase [0, 1]
+
+    #     # Get the current position of the leg (from FK)
+    #     current_pos = self.Update_FK(body_name)["position"]
+        
+    #     # Initialize the desired foot position
+    #     x, y, z = current_pos
+
+    #     # Sideways position (left vs right legs)
+    #     y = 0.1 if "L" in body_name else -0.1  # Adjust lateral offset for left or right leg
+
+    #     if phase < 0.5:
+    #         # Swing phase: Foot is lifted and moves forward
+    #         swing_phase = 2 * phase  # Normalize to [0, 1] for the swing phase
+    #         x += swing_phase * self.step_length  # Move forward smoothly
+    #         z = self.swing_height * np.sin(np.pi * swing_phase)  # Lift foot during swing
+    #     else:
+    #         # Stance phase: Foot is on the ground and moves backward
+    #         stance_phase = 2 * (phase - 0.5)  # Normalize to [0, 1] for the stance phase
+    #         x -= stance_phase * self.step_length  # Move backward
+    #         z = 0.0  # Foot stays on the ground
+
+    #     # Desired Cartesian foot position [x, y, z]
+    #     desired_pos = np.array([x, y, self.body_height + z])
+
+    #     # Use Inverse Kinematics to get the desired joint angles for this position
+    #     joint_angles = self.solve_ik(body_name, desired_pos)
+
+    #     return joint_angles
+
 
 
 def main():
@@ -163,14 +152,7 @@ def main():
     pub.Init()
 
     ROBOT_SCENE = "../unitree_mujoco/unitree_robots/go2/scene.xml"
-    kinematics = Kinematics(ROBOT_SCENE)
-    
-    # Initialize the read_TaskSpace and read_JointState classes
-    joint_state = read_JointState()
-    task_space = read_TaskSpace()
-    joint_states = joint_state.joint_angles
-    task_states = task_space.robot_state
-
+    kinematics = Kinematics(ROBOT_SCENE) # import the Forward Kinematics class
 
     controller = TrotGaitController(pub, crc, kinematics)
 
