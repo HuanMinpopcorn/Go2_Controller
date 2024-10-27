@@ -26,13 +26,12 @@ from read_TaskSpace import read_TaskSpace
 
 
 class TrotGaitController:
-    def __init__(self, pub, crc, kinematics, dt=0.001):
+    def __init__(self, pub, crc, dt=0.01):
         """
         Initialize the trot gait controller.
         """
         self.pub = pub  # Publisher for Unitree commands
         self.crc = crc  # CRC utility for message integrity
-        self.kinematics = kinematics  # Kinematics instance
         self.dt = dt  # Control loop time step (500Hz)
 
         self.body_height = 0.25  # Desired body height
@@ -94,52 +93,6 @@ class TrotGaitController:
                                                                                                                                                                                                                                                                               
 
 
-
-    # def reference_path_generator(self, time_elapsed, body_name):
-    #     """
-    #     Generate the reference Cartesian path for a given leg during the gait cycle.
-
-    #     Parameters:
-    #         time_elapsed (float): Elapsed time since gait start.
-    #         body_name (str): Name of the leg (e.g., 'FL_foot').
-
-    #     Returns:
-    #         np.ndarray: Desired joint angles for the leg using IK.
-    #     """
-    #     # Define the gait cycle parameters
-    #     cycle_time = 2 * self.swing_time  # Full gait cycle (swing + stance)
-    #     phase = (time_elapsed % cycle_time) / cycle_time  # Normalize phase [0, 1]
-
-    #     # Get the current position of the leg (from FK)
-    #     current_pos = self.Update_FK(body_name)["position"]
-        
-    #     # Initialize the desired foot position
-    #     x, y, z = current_pos
-
-    #     # Sideways position (left vs right legs)
-    #     y = 0.1 if "L" in body_name else -0.1  # Adjust lateral offset for left or right leg
-
-    #     if phase < 0.5:
-    #         # Swing phase: Foot is lifted and moves forward
-    #         swing_phase = 2 * phase  # Normalize to [0, 1] for the swing phase
-    #         x += swing_phase * self.step_length  # Move forward smoothly
-    #         z = self.swing_height * np.sin(np.pi * swing_phase)  # Lift foot during swing
-    #     else:
-    #         # Stance phase: Foot is on the ground and moves backward
-    #         stance_phase = 2 * (phase - 0.5)  # Normalize to [0, 1] for the stance phase
-    #         x -= stance_phase * self.step_length  # Move backward
-    #         z = 0.0  # Foot stays on the ground
-
-    #     # Desired Cartesian foot position [x, y, z]
-    #     desired_pos = np.array([x, y, self.body_height + z])
-
-    #     # Use Inverse Kinematics to get the desired joint angles for this position
-    #     joint_angles = self.solve_ik(body_name, desired_pos)
-
-    #     return joint_angles
-
-
-
 def main():
     """
     Main function to initialize and start the controller.
@@ -151,11 +104,7 @@ def main():
     pub = ChannelPublisher("rt/lowcmd", LowCmd_)
     pub.Init()
 
-    ROBOT_SCENE = "../unitree_mujoco/unitree_robots/go2/scene.xml"
-    kinematics = Kinematics(ROBOT_SCENE) # import the Forward Kinematics class
-
-    controller = TrotGaitController(pub, crc, kinematics)
-
+    controller = TrotGaitController(pub, crc)
     controller.move_to_initial_position()
 
     # controller.subscribe_high_state()

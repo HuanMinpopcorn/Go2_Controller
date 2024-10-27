@@ -53,11 +53,13 @@ class Kinematics:
         """
         body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
         position = np.copy(self.data.xpos[body_id])  # 3D position
-        orientation = np.copy(self.data.xmat[body_id].reshape(3, 3))  # 3x3 rotation matrix
-        configuration = np.eye(4)
-        configuration[:3, :3] = orientation
-        configuration[:3, 3] = position
-        return {"position": position, "orientation": orientation, "configuration": configuration}
+        orientation_matrix = np.copy(self.data.xmat[body_id].reshape(3, 3))  # 3x3 rotation matrix
+        orientation = np.zeros(3)
+        orientation[0] = np.arctan2(orientation_matrix[2, 1], orientation_matrix[2, 2])  # Roll
+        orientation[1] = np.arctan2(-orientation_matrix[2, 0], np.sqrt(orientation_matrix[2, 1]**2 + orientation_matrix[2, 2]**2))  # Pitch
+        orientation[2] = np.arctan2(orientation_matrix[1, 0], orientation_matrix[0, 0])  # Yaw
+
+        return {"position": position, "orientation": orientation}
 
     def get_jacobian(self, body_name):
         """
@@ -73,8 +75,8 @@ class Kinematics:
         J_pos = np.zeros((3, self.model.nv))
         J_rot = np.zeros((3, self.model.nv))
         mujoco.mj_jacBody(self.model, self.data, J_pos, J_rot, body_id)
-        Jacobian = np.hstack((J_pos, J_rot))
-        return {"J_pos": J_pos, "J_rot": J_rot, "Jacobian": Jacobian}
+
+        return {"J_pos": J_pos, "J_rot": J_rot}
 
 
     def print_kinematics(self, body_name):
@@ -88,8 +90,13 @@ class Kinematics:
         jacobian = self.get_jacobian(body_name)
         print(f"\n{body_name} Position: {state['position']}")
         print(f"{body_name} Orientation:\n{state['orientation']}")
-        print(f"{body_name} Jacobian (Translation):\n{jacobian['J_pos']}")
-        print(f"{body_name} Jacobian (Rotation):\n{jacobian['J_rot']}")
+        # print(f"{body_name} Jacobian (Translation):\n{jacobian['J_pos']}")
+        # print(f"{body_name} Jacobian (Rotation):\n{jacobian['J_rot']}")
+        # print(f"{body_name} Joint Angles: {self.joint_angles}")
+        # print(f"{body_name} Position Size: {state['position'].size}")
+        # print(f"{body_name} Orientation Size: {state['orientation'].size}")
+        # print(f"{body_name} Jacobian (Translation) Size: {jacobian['J_pos'].size}")
+        # print(f"{body_name} Jacobian (Rotation) Size: {jacobian['J_rot'].size}")
 
     def update_joint_angles(self):
         """
@@ -126,31 +133,50 @@ class Kinematics:
 
 # Example Usage
 if __name__ == "__main__":
+    ChannelFactoryInitialize(1, "lo")
     # Initialize the Kinematics class with the XML file for the Go2 robot
     ROBOT_SCENE = "../unitree_mujoco/unitree_robots/go2/scene.xml"
     kinematics = Kinematics(ROBOT_SCENE)
 
-    # run the kinematics with a specific joint position
-    stand_up_joint_pos = np.array([
-        0.052, 1.12, -2.10, -0.052, 1.12, -2.10,
-        0.052, 1.12, -2.10, -0.052, 1.12, -2.10
-    ], dtype=float)
+    # Print the number of degrees of freedom (nv), number of generalized coordinates (nq), and number of actuators (nu)
+    # print("Number of degrees of freedom (nv):", kinematics.model.nv)
+    # print("Number of generalized coordinates (nq):", kinematics.model.nq)
+    # print("Number of actuators (nu):", kinematics.model.nu)
 
-    kinematics.set_joint_angles(stand_up_joint_pos)
-    kinematics.run_fk()
-    kinematics.print_kinematics("FL_foot")
+    # Print all body names and their IDs
+    # print("\nBody names and their IDs:")
+    # for i in range(kinematics.model.nbody):
+    #     body_name = mujoco.mj_id2name(kinematics.model, mujoco.mjtObj.mjOBJ_BODY, i)
+    #     print(f"ID: {i}, Name: {body_name}")
+
+
+    # run the kinematics with a specific joint position
+    # stand_up_joint_pos = np.array([
+    #     0.052, 1.12, -2.10, -0.052, 1.12, -2.10,
+    #     0.052, 1.12, -2.10, -0.052, 1.12, -2.10
+    # ], dtype=float)
+
+    # kinematics.set_joint_angles(stand_up_joint_pos)
+    # kinematics.run_fk()
+    # frame = ["World", "Base_Link", "FL_foot", "RR_foot"]
+    # for i in frame:
+    #     kinematics.print_kinematics(i)
+
 
 
     # run continuous joint updates in the background
     # Start continuous joint updates in the background
     
-    # kinematics.start_joint_updates()
+    kinematics.start_joint_updates()
 
-    # try:
-    #     while True:
-    #         # Print kinematics for 'FL_foot'
-    #         kinematics.print_kinematics("FL_foot")
-    #         time.sleep(1.0)  # Adjust the frequency as needed
-    # except KeyboardInterrupt:
-    #     # Gracefully stop the joint update thread on exit
-    #     kinematics.stop_joint_updates()
+    try:
+        while True:
+            # Print kinematics for 'FL_foot'
+            frame = ["World", "Base_Link", "FL_foot", "RR_foot"]
+            for i in frame:
+                kinematics.print_kinematics(i)
+
+            time.sleep(1.0)  # Adjust the frequency as needed
+    except KeyboardInterrupt:
+        # Gracefully stop the joint update thread on exit
+        kinematics.stop_joint_updates()
