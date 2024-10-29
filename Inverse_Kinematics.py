@@ -20,47 +20,44 @@ class InverseKinematic(Kinematics):
         self.step_length = 0.1
         self.velocity = 0.1
 
-        self.body_frame_name = "base_link"
+        self.body_frame_name = "Base_Link"
         self.swing_legs = ["FL_foot", "RR_foot"]
         self.contact_legs = ["FR_foot", "RL_foot"]
         
         self.K = int(self.swing_time / self.step_size)
 
         self.joint_angles = self.get_current_joint_angles()
-        self.x1, self.x2, self.x3 = self.get_required_state()
-        self.J1, self.J2, self.J3 = self.get_required_jacobian()
+        # self.x1, self.x2, self.x3 = np.zeros((6, 1))  # Initialize state variables
+        # self.J1, self.J2, self.J3 = np.zeros((6, ))  # Initialize Jacobians
 
     def check_joint_limits(self, joint_angles):
         for i in range(len(joint_angles)):
-            lower_limit, upper_limit = self.model.jnt_range[i]
+            lower_limit, upper_limit = self.model.jnt_range[i, :]
             joint_angles[i] = np.clip(joint_angles[i], lower_limit, upper_limit)
         return joint_angles
 
     def get_required_state(self):
-        x1 = []
-        x2 = np.zeros(6)
-        x3 = []
-        x4 = []
+        x1 = []  # Contact leg positions
+        x3 = []  # Swing leg positions
+        x2 = np.zeros(6)  # Body state (position + orientation)
 
         for contact_leg in self.contact_legs:
-            contact_state = self.get_body_state(contact_leg)
-            contact_position = contact_state["position"]
+            contact_position = self.get_body_state(contact_leg)["position"]
             x1.append(contact_position)
-        
-        x1 = np.hstack(x1)
 
-        body_state = self.get_body_state(self.body_frame_name)
-        body_position = body_state["position"]
-        body_orientation = body_state["orientation"]
-        x2[:3] = body_position
-        x2[3:] = body_orientation
+        x1 = np.hstack(x1) # Reshape to (3 * num_contact_legs, 1)
+
+        base_state = self.get_body_state(self.body_frame_name)
+        base_position = base_state["position"]
+        base_orientation = base_state["orientation"]
+        x2[:3] = base_position
+        x2[3:] = base_orientation
 
         for swing_leg in self.swing_legs:
-            swing_state = self.get_body_state(swing_leg)
-            swing_position = swing_state["position"]
+            swing_position = self.get_body_state(swing_leg)["position"]
             x3.append(swing_position)
 
-        x3 = np.hstack(x3)
+        x3 = np.hstack(x3)  # Reshape to (3 * num_swing_legs, 1)
 
         return x1, x2, x3
 
@@ -117,46 +114,57 @@ class InverseKinematic(Kinematics):
         return np.array(body_trajectory), swing_Traj
 
     def calculate(self, initial_joint_angles, x_b, x_sw):
-        joint_angles = initial_joint_angles.copy()
+        joint_angles = initial_joint_angles.reshape(-1, 1)  # Ensure shape: (nv, 1)
         q_dot = np.zeros_like(joint_angles)
         joint_trajectory = [joint_angles.copy()]
         q_dot_trajectory = []
+        x1, x2, x3 = self.get_required_state()
+        J1, J2, J3 = self.get_required_jacobian()
+        print("Contact leg positions (x1):", x1)
+        print("Body state (x2):", x2)
+        print("Swing leg positions (x3):", x3)
         for i in range(self.K):
-            x_b = x_b[i]
-            x_sw = x_sw[i]
-         
-            print("x_b:", x_b.shape, "x_sw:", x_sw.shape)
-            self.x1, self.x2, self.x3 = self.get_required_state()
-            self.J1, self.J2, self.J3 = self.get_required_jacobian()
-            print("x1:", self.x1.shape, "x2:", self.x2.shape, "x3:", self.x3.shape)
-            print("J1:", self.J1.shape, "J2:", self.J2.shape, "J3:", self.J3.shape)
-            
-            
-            N1 = sp.null_space(self.J1)
-  
+    
+            dx_b = (x_b[i].T - x2).reshape(-1, 1)  # Shape: (6, 1)
+            dx_sw = (x_sw[i].T - x3).reshape(-1, 1)  # Shape: (6, 1)
+
+            N1 = sp.null_space(J1)  
+            J_21 = J2 @ N1  
+            N_21 = sp.null_space(J_21.T @ J_21)  
+
+            print(f"Step {i}:")
+            print("x_b:", x_b[i].shape)
+            print("x_sw:", x_sw[i].shape)
+            print("x1:", x1.shape)
+            print("x2:", x2.shape)
+            print("x3:", x3.shape)
+            print("J1:", J1.shape)
+            print("J2:", J2.shape)
+            print("J3:", J3.shape)
+            print("dx_sw shape:", dx_sw.shape)
+            print("dx_b shape:", dx_b.shape)
             print("N1 shape:", N1.shape)
-            print("J2 shape:", self.J2.shape)
-            J_21 = self.J2 @ N1
-            N_21 = sp.null_space(J_21)
+            print("J_21 shape:", J_21.shape)
+            print("N_21 shape:", N_21.shape)
+            print("J3 @ N1 @ N_21 shape:", np.linalg.pinv(J3 @ N1 @ N_21).shape)
             
-            print("J_21:", J_21.shape)
-            
-            dx_b = (x_b - self.x2).reshape(-1, 1)
-            dx_sw = (x_sw - self.x3).reshape(-1, 1)
-            print("J3:,", self.J3.shape)
-            print("N_21:", N_21.shape) 
-            print((self.J3 @ N_21).shape)
+            # Calculate joint velocities
 
-
-            q_dot = np.linalg.pinv(J_21) @ dx_b  + np.linalg.pinv(self.J3 @ N_21) @ (dx_sw - self.J3 @ np.linalg.pinv(J_21) @ dx_b)
+            # q_dot = np.linalg.pinv(J_21) @ dx_b + np.linalg.pinv(J3[:,6:] @ N_21) @ (dx_sw - J3 @ np.linalg.pinv(J_21) @ dx_b)
+            q1_dot = np.linalg.pinv(J_21) @ dx_b
             
-            # update the new joint angles 
-            new_joint_angles = joint_angles + q_dot*self.step_size
+            print("q1_dot shape:", q1_dot.shape)
+            q2_dot = np.linalg.pinv(J3 @ N1 @ N_21) @ (dx_sw - J3 @ N1 @ q1_dot)
+            print("q2_dot shape:", q2_dot.shape)
+            q_dot = q1_dot + q2_dot
+            new_joint_angles = joint_angles + q_dot * self.step_size
             new_joint_angles = self.check_joint_limits(new_joint_angles)
             joint_angles = new_joint_angles
-            joint_trajectory.append(joint_angles)
+
+            joint_trajectory.append(joint_angles.copy())
             q_dot_trajectory.append(q_dot.copy())
-        return joint_trajectory , q_dot_trajectory
+
+        return joint_trajectory, q_dot_trajectory
 
     def cubic_spline(self, t, tf, xf):
         a2 = -3 * xf / tf**2
@@ -171,12 +179,14 @@ if __name__ == "__main__":
     ik.start_joint_updates()
     time.sleep(1.0)
 
-    # Example of computing desired values 
+    # Compute desired trajectories
     x_b, x_sw = ik.compute_desired_value()
-    print("Body Trajectory:", x_b.shape)
-    print("Swing Leg Trajectory:", x_sw.shape)
 
-
+    # Get initial joint angles
+    initial_joint_angles = ik.get_current_joint_angles()
+    # Calculate joint angles and velocities
+    q_Traj, q_dot_Traj = ik.calculate(initial_joint_angles, x_b, x_sw)
+    print("New Joint Angles:", q_Traj)
 
     # # Plotting the body trajectory
     # plt.figure(figsize=(12, 6))
@@ -205,9 +215,3 @@ if __name__ == "__main__":
 
     # plt.tight_layout()
     # plt.show()
-
-    # Calculate the joint angles 
-    initial_joint_angles = ik.get_current_joint_angles()
-    q_Traj,q_dot_Traj = ik.calculate(initial_joint_angles, x_b, x_sw)
-    print("New Joint Angles:", q_Traj)
-

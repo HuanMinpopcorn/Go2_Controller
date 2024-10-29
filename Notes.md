@@ -36,7 +36,7 @@ $$
 If we have three state need to control:
 
 $$
-\dot{\mathbf{q}} = J_1^+ \dot{\mathbf{x}}_1^d + (J_2N_1)^+(\dot{\mathbf{x}}_2^d - J_2J_1^+\dot{\mathbf{x}}_1^d) + (J_3N_{2|1})^+ (\dot{\mathbf{x}}_3^d - J_3 J_{2|1}^+ \dot{\mathbf{x}}_2^d)  \tag{6}
+\dot{\mathbf{q_3}} = J_1^+ \dot{\mathbf{x}}_1^d + (J_2N_1)^+(\dot{\mathbf{x}}_2^d - J_2J_1^+\dot{\mathbf{x}}_1^d) + (J_3N_1N_{2|1})^+ (\dot{\mathbf{x}}_3^d - J_3N_1 J_{2|1}^+ \dot{\mathbf{x}}_2^d)  \tag{6}
 $$
 
 where: 

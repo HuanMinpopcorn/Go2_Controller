@@ -172,7 +172,7 @@ if __name__ == "__main__":
     try:
         while True:
             # Print kinematics for 'FL_foot'
-            frame = ["World", "Base_Link", "FL_foot", "RR_foot"]
+            frame = ["World", "Base_Link", "FL_foot", "RR_foot", "FR_foot", "RL_foot"]
             for i in frame:
                 kinematics.print_kinematics(i)
 
