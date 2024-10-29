@@ -25,6 +25,7 @@ from read_JointState import read_JointState
 from read_TaskSpace import read_TaskSpace
 
 
+
 class TrotGaitController:
     def __init__(self, pub, crc, dt=0.01):
         """
@@ -88,6 +89,7 @@ class TrotGaitController:
             self.cmd.crc = self.crc.Crc(self.cmd)
             self.pub.Write(self.cmd)
             time.sleep(self.dt)
+
         
 
                                                                                                                                                                                                                                                                               

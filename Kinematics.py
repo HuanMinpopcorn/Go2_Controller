@@ -128,8 +128,7 @@ class Kinematics:
         Returns:
             np.ndarray: Array of current joint angles.
         """
-        return self.joint_angles
-
+        return self.joint_state_reader.joint_angles
 
 # Example Usage
 if __name__ == "__main__":
@@ -175,6 +174,8 @@ if __name__ == "__main__":
             frame = ["World", "Base_Link", "FL_foot", "RR_foot", "FR_foot", "RL_foot"]
             for i in frame:
                 kinematics.print_kinematics(i)
+            print("\n=== Joint Angles ===")
+            print(kinematics.get_current_joint_angles())
 
             time.sleep(1.0)  # Adjust the frequency as needed
     except KeyboardInterrupt:
