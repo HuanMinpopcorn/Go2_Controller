@@ -36,7 +36,7 @@ $$
 If we have three state need to control:
 
 $$
-\dot{\mathbf{q_3}} = J_1^+ \dot{\mathbf{x}}_1^d + (J_2N_1)^+(\dot{\mathbf{x}}_2^d - J_2J_1^+\dot{\mathbf{x}}_1^d) + (J_3N_1N_{2|1})^+ (\dot{\mathbf{x}}_3^d - J_3N_1 J_{2|1}^+ \dot{\mathbf{x}}_2^d)  \tag{6}
+\dot{\mathbf{q_3}} = J_1^+ \dot{\mathbf{x}}_1^d + (J_2N_1)^+(\dot{\mathbf{x}}_2^d - J_2J_1^+\dot{\mathbf{x}}_1^d) + (J_3N_{2|1})^+ (\dot{\mathbf{x}}_3^d - J_3J_{2|1}^+ \dot{\mathbf{x}}_2^d)  \tag{6}
 $$
 
 where: 
@@ -46,8 +46,8 @@ where:
 * $J_1$: body jacobian of contact leg $\in R^{3 \times 18}$
 * $J_2$: body jacobian of body frame 
 * $J_3$: body jacobian of swing leg 
-* $N_1$: Null space of $J_1$ 
-* $N_2$: Null space of $J_2$
+* $N_1$: Null space of $J_1$ = $(I - J_1^+ J_1)$
+* $N_2$: Null space of $J_2$ = $(I - J_2^+ J_2)$
 * $J_{2|1}$: $J_2N_1$
 * $N_{2|1}$:$Null(J_{2|1})$
 * $+$ : pseudo inverse operator 

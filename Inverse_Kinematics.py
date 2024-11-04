@@ -27,7 +27,7 @@ class InverseKinematic(Kinematics):
         # Robot parameters
         self.body_height = 0.25
         self.swing_height = 0.075
-        self.velocity = 0.1
+        self.velocity = 0.0
 
         self.body_frame_name = "Base_Link"
         self.swing_legs = ["FL_foot", "RR_foot"]
@@ -131,36 +131,64 @@ class InverseKinematic(Kinematics):
         """
         Main loop to compute and update joint angles in real-time.
         """
+        kp = 1.0  # Proportional gain
+        m = self.model.nv
         i = 0
         while True:
             i = min(i + 1, self.K - 1)  # Prevent index out of bounds
             
             joint_angles = self.get_current_joint_angles() # Get current joint angles from mujoco
             x1, x2, x3 = self.get_required_state()
-            J1, J2, J3 = self.get_required_jacobian()
+            J2, J1, J3 = self.get_required_jacobian()
 
+            stand_up_joint_pos = np.array([
+                0.052, 1.12, -2.10, -0.052, 1.12, -2.10,
+                0.052, 1.12, -2.10, -0.052, 1.12, -2.10
+            ], dtype=float)
 
-            print(f"Current joint angles: {joint_angles}")
-            print(f"Desired body position: {x_b[i]}")
-            print(f"Desired swing position: {x_sw[i]}")
+            config = 20 * (stand_up_joint_pos - joint_angles) # initial q_err
+            q_err_temp = config.reshape(-1, 1)
+            zero_vector = np.zeros((6, 1)).reshape(-1, 1)
+            q_err = np.vstack((zero_vector, q_err_temp))
 
-            dx_b = (x_b[i].T - x2).reshape(-1, 1)
-            dx_sw = (x_sw[i].T - x3).reshape(-1, 1)
+            dx_b = (x_b[i].T - x2).reshape(-1, 1) # Desired body position - current body position
+            dx_sw = kp * (x_sw[i].T - x3).reshape(-1, 1) #Desired swing position - current swing position
 
-            N1 = sp.null_space(J1)
+            # dx_b = np.zeros((6, 1))  # Reset dx_b to zero
+            # dx_sw = np.zeros((6, 1))  # Reset dx_sw to zero
+
+            N1 = np.eye(m) - np.linalg.pinv(J1) @ J1 
+
             J_21 = J2 @ N1
-            N_21 = sp.null_space(J_21)
+            N_21 = np.eye(m) -  np.linalg.pinv(J_21) @ J_21
 
-            q1_dot = np.linalg.pinv(J_21) @ dx_b
-            q2_dot = np.linalg.pinv(J3 @ N1 @ N_21) @ (dx_sw - J3 @ N1 @ q1_dot)
+
+
+            # q1_dot = np.linalg.pinv(J_21) @ dx_b
+            # q2_dot = np.linalg.pinv(J3 @ N1 @ N_21) @ (dx_sw - J3 @ N1 @ q1_dot)
+            # q_dot = q1_dot + q2_dot
+
+            q1_dot = np.linalg.pinv(J_21) @ dx_b 
+            q2_dot = np.linalg.pinv(J3 @ N_21) @ (dx_sw - J3 @ q1_dot)
+            # q2_dot = np.zeros((m, 1))  # Reset q2_dot to zero
+            q3_dot = N_21 @ q_err 
             q_dot = q1_dot + q2_dot
-            
-            new_joint_angles = joint_angles.reshape(-1,1) + q_dot * self.step_size
+            # q_dot = q1_dot + q2_dot + q3_dot 
+            dq_cmd = q_dot[6:m].flatten()
 
-            # new_joint_angles = self.check_joint_limits(joint_angles.reshape(-1,1) + q_dot * self.step_size)
-            print(f"New joint angles: {new_joint_angles.T}")
-            # print(f"New joint angles: {new_joint_angles.shape}")
-            self.send_motor_commands(new_joint_angles, q_dot)
+            new_joint_angles = joint_angles + dq_cmd * self.step_size
+
+
+            # check every parameters 
+            # print("dx_b: ", dx_b)
+            # print("dx_sw: ", dx_sw)
+            # print("q1_dot: ", q1_dot)
+            # print("q2_dot: ", q2_dot)
+            # print("q3_dot: ", q3_dot)
+            print("dq_cmd: ", dq_cmd)
+            print(""new_joint_angles)
+
+            self.send_motor_commands(new_joint_angles, dq_cmd)
 
     def send_motor_commands(self, new_joint_angles, q_dot):
         """
@@ -170,8 +198,8 @@ class InverseKinematic(Kinematics):
         for i, angle in enumerate(new_joint_angles):
             self.cmd.motor_cmd[i].q = angle
             self.cmd.motor_cmd[i].dq = q_dot[i]
-            self.cmd.motor_cmd[i].kp = 10.0
-            self.cmd.motor_cmd[i].kd = 3.5
+            self.cmd.motor_cmd[i].kp = 100
+            self.cmd.motor_cmd[i].kd = 2
 
         self.cmd.crc = self.crc.Crc(self.cmd)
         self.pub.Write(self.cmd)
@@ -194,7 +222,8 @@ class InverseKinematic(Kinematics):
             0.0473455, 1.22187, -2.44375, -0.0473455, 1.22187, -2.44375
         ], dtype=float)
 
-
+        print("Transitioning to initial position...")
+        print("Press Ctrl+ C to enter Trot Gait ...")
         running_time = 0.0
         try:
             while True:
@@ -212,6 +241,7 @@ class InverseKinematic(Kinematics):
                 self.cmd.crc = self.crc.Crc(self.cmd)
                 self.pub.Write(self.cmd)
                 time.sleep(self.step_size)
+                
         except KeyboardInterrupt:
             # Gracefully stop the joint update thread on exit
             pass
@@ -229,15 +259,13 @@ if __name__ == "__main__":
     ik.move_to_initial_position()
 
     # Compute desired trajectories
-    try : 
-        x_b, x_sw = ik.compute_desired_value()
-        print("Desired body trajectory:", x_b)
-        print("Desired swing trajectory:", x_sw)
-    except KeyboardInterrupt:
-        pass
-    # joint_angles = ik.get_current_joint_angles()
-    # print(f"Current joint angles: {joint_angles}")
-    # print(f"Desired body position: {x_b[1]}")
-    # print(f"Desired swing position: {x_sw[1]}")
-    # Calculate joint angles and update in real-time
+    print("Computing desired trajectories...")
+    x_b, x_sw = ik.compute_desired_value()
+    # print("Desired body trajectory:", x_b)
+    # print("Desired swing trajectory:", x_sw)
+
+    joint_angles = ik.get_current_joint_angles()
+    x1, x2, x3 = ik.get_required_state()
+    J1, J2, J3 = ik.get_required_jacobian()
+
     ik.calculate(x_b, x_sw)
