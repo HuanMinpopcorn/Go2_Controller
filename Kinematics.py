@@ -38,18 +38,39 @@ class Kinematics:
 
         self.num_motor = self.model.nu
         self.dim_motor_sensor = MOTOR_SENSOR_NUM * self.num_motor
+    
+    # TODO : Update the correct current joint state of the robot
     def set_joint_angles(self):
         """
         Sets the joint angles in the MuJoCo qpos array.
         """
-        self.data.qpos[:3] = self.robot_state[:3]
+        self.data.qpos[:3] = self.robot_state.position
+        # self.data.qpos[:3] = np.array([-0.05, 0, 0.07])
         self.data.qpos[3:7] = self.imu_data
         self.data.qpos[7:] = self.joint_angles
-        
-    def run_fk(self):
-        """Runs forward kinematics to update positions and orientations."""
-        mujoco.mj_forward(self.model, self.data)
+    
+    # TODO: Compute the forward kinematics of the robot
+    # Based on the current joint angles
 
+    def run_fk(self):
+        """
+        Runs forward kinematics to update the robot's positions and orientations 
+        based on current joint angles. Provides debug output for the forward 
+        kinematics process and error checking.
+        """
+        try:
+            # Perform forward kinematics calculations using MuJoCo
+            mujoco.mj_forward(self.model, self.data)
+
+            # # Optional debug statements to monitor the forward kinematics update
+            # print("Forward kinematics updated:")
+            # print(f"qpos (position): {self.data.qpos}")
+            # print(f"qvel (velocity): {self.data.qvel}")
+            # print(f"qacc (acceleration): {self.data.qacc}")
+
+        except Exception as e:
+            print(f"Error occurred during forward kinematics computation: {e}")
+    # TODO: Read the task space data from the robot
     def get_body_state(self, body_name):
         """
         Retrieves the position and orientation of the specified body.
@@ -98,7 +119,7 @@ class Kinematics:
         """
         state = self.get_body_state(body_name)
         jacobian = self.get_jacobian(body_name)
-        np.set_printoptions(precision=3, suppress=True)
+        np.set_printoptions(precision=5, suppress=True)
         print(f"\n{body_name} Position: {state['position']}")
         print(f"{body_name} Orientation:\n{state['orientation']}")
         
@@ -136,6 +157,7 @@ class Kinematics:
             np.ndarray: Array of current joint angles.
         """
         return self.joint_state_reader.joint_angles
+
     def check_Jacobian_singularity(self, jacobian):
         """
         Check if the Jacobian matrix is singular.
@@ -209,8 +231,8 @@ if __name__ == "__main__":
             frame = ["world", "base_link", "FL_foot", "RR_foot", "FR_foot", "RL_foot"]
             for i in frame:
                 fk.print_kinematics(i)
-            print("\n=== Joint Angles ===")
-            # print(kinematics.get_current_joint_angles())
+            # print("\n=== Joint Angles ===")
+            # print(fk.get_current_joint_angles())
             # print("\n=== Sensor Data ===")
             print(f"qpos: {fk.data.qpos}")
             # print(f"qpos0: {kinematics.model.qpos0}")

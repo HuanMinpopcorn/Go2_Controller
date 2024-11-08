@@ -11,21 +11,23 @@ class read_TaskSpace:
  
         sub = ChannelSubscriber("rt/sportmodestate", SportModeState_)
         sub.Init(self.high_state_handler, 10)
-        self.robot_state = np.zeros(6)
-        self.foot_positions = np.zeros(12)
+        self.robot_state = unitree_go_msg_dds__SportModeState_()
+
 
     def high_state_handler(self, msg: SportModeState_):
         """
         Callback to handle high state data and update leg positions.
         """
-        # read the body postion x and body velocity v
-        for i in range(3):
-            self.robot_state[i] = msg.position[i]
-            self.robot_state[i+3] = msg.velocity[i]
-        
-        foot_positions = np.zeros(12)
-        for i in range(12):
-            self.foot_positions[i] = msg.foot_position_body[i]
+        global robot_state
+        self.robot_state = msg
+
+    # the robot state include
+    # position
+    # velocity
+    # yaw_speed
+    # foot_position_body
+    # foot_speed_body
+
 
 
 if __name__ == "__main__":
@@ -33,14 +35,14 @@ if __name__ == "__main__":
     ChannelFactoryInitialize(1, "lo")
     # Initialize the read_TaskSpace class
     task_space_reader = read_TaskSpace()
+    robot_state = unitree_go_msg_dds__SportModeState_()
     while True:
         time.sleep(1.0)
         robot_state = task_space_reader.robot_state
         print("\n=== Task States read the postion x and velocity v===")
-        np.set_printoptions(precision=3, suppress=True)
-        print(robot_state)
+        print(robot_state.position)
         print("===============================================")
-        print(task_space_reader.foot_positions)
+        print(robot_state.foot_position_body)
 
     # Keep the program running to continue receiving data
    

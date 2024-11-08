@@ -413,10 +413,10 @@ if __name__ == "__main__":
     ik.move_to_initial_position()
     xTraj_b,xTraj_sw = ik.compute_desired_value()
 
-    # visualize the trajectory
-    ik.visualize_trajectory(xTraj_b)
-    ik.visualize_trajectory(xTraj_sw)
+    # # visualize the trajectory
+    # ik.visualize_trajectory(xTraj_b)
+    # ik.visualize_trajectory(xTraj_sw)
 
 
     
-    # ik.calculate()
+    ik.calculate()
