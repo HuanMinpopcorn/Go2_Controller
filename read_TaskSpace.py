@@ -12,21 +12,20 @@ class read_TaskSpace:
         sub = ChannelSubscriber("rt/sportmodestate", SportModeState_)
         sub.Init(self.high_state_handler, 10)
         self.robot_state = np.zeros(6)
+        self.foot_positions = np.zeros(12)
 
     def high_state_handler(self, msg: SportModeState_):
         """
         Callback to handle high state data and update leg positions.
         """
-        
+        # read the body postion x and body velocity v
         for i in range(3):
             self.robot_state[i] = msg.position[i]
             self.robot_state[i+3] = msg.velocity[i]
         
-        #    print(f"X state: {msg.position[0]:.3f} meters")
-        #     print(f"Y state: {msg.position[1]:.3f} meters")
-        #     print(f"Z state: {msg.position[2]:.3f} meters")
-
-        return self.robot_state
+        foot_positions = np.zeros(12)
+        for i in range(12):
+            self.foot_positions[i] = msg.foot_position_body[i]
 
 
 if __name__ == "__main__":
@@ -37,8 +36,11 @@ if __name__ == "__main__":
     while True:
         time.sleep(1.0)
         robot_state = task_space_reader.robot_state
-        print("\n=== Task States ===")
+        print("\n=== Task States read the postion x and velocity v===")
+        np.set_printoptions(precision=3, suppress=True)
         print(robot_state)
+        print("===============================================")
+        print(task_space_reader.foot_positions)
 
     # Keep the program running to continue receiving data
    

@@ -1,4 +1,5 @@
 import mujoco
+import mujoco.viewer
 import numpy as np
 import scipy.linalg as sp
 from Kinematics import Kinematics
@@ -10,10 +11,10 @@ import matplotlib.pyplot as plt
 from unitree_sdk2py.utils.crc import CRC
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_
 from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowCmd_
-import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+
+# import unitree_mujoco.simulate_python.unitree_mujoco as sim 
+
 
 class InverseKinematic(Kinematics):
     """
@@ -45,8 +46,9 @@ class InverseKinematic(Kinematics):
         # Initialize motor command message
         self.cmd = self._initialize_motor_commands()
 
-        # Initialize joint angles
-        # self.joint_angles = self.get_current_joint_angles()
+
+        # Viewer to visualize simulation
+        # self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
 
     def _initialize_motor_commands(self):
         """
@@ -130,7 +132,7 @@ class InverseKinematic(Kinematics):
             # Generate swing leg trajectories
                
             swing_leg_positions[0] = swing_leg_positions_initial[0] + self.cubic_spline(i, self.K, self.velocity * self.swing_time)
-            swing_leg_positions[2] = swing_leg_positions_initial[2] + self.swing_height * np.sin(np.pi * i / self.K)
+            swing_leg_positions[2] = swing_leg_positions_initial[2] + self.swing_height * np.sin(np.pi * i / self.K )
             swing_leg_positions[3] = swing_leg_positions_initial[3] + self.cubic_spline(i, self.K, self.velocity * self.swing_time)
             swing_leg_positions[5] = swing_leg_positions_initial[5] + self.swing_height * np.sin(np.pi * i / self.K)
 
@@ -179,7 +181,7 @@ class InverseKinematic(Kinematics):
         including a trot gait with proper leg phasing.
         """
         x_b, x_sw = self.compute_desired_value()
-        kp = 5 # Proportional gain
+        kp = 10 # Proportional gain
         m = self.model.nv
         i = 0
 
@@ -187,16 +189,16 @@ class InverseKinematic(Kinematics):
         leg_pair_in_swing = True
 
         print("Starting Trot Gait...")
-        while i <  5:
-            # i = (i + 1) % self.K  # Loop over the swing cycle duration
-            i = min(i + 1, self.K)  # Increment index but keep it within bounds
+        while  True:
+            i = (i + 1) % self.K  # Loop over the swing cycle duration
+            # i = min(i + 1, self.K -1)  # Increment index but keep it within bounds
 
             # # Toggle leg pairs at the end of each phase
             # if i == 0:
             #     leg_pair_in_swing = not leg_pair_in_swing
             #     self.transition_legs()
 
-            # Select the active swing and stance leg pairs based on the phase
+            # # Select the active swing and stance leg pairs based on the phase
             # if leg_pair_in_swing:
             #     active_swing_legs = self.swing_legs
             #     active_stance_legs = self.contact_legs
@@ -216,51 +218,55 @@ class InverseKinematic(Kinematics):
             
 
             # Initial joint position error
-            config = 20* (stand_up_joint_pos - joint_angles)
+            config = 0.5 * (stand_up_joint_pos - joint_angles)
             q_err_temp = config.reshape(-1, 1)
             zero_vector = np.zeros((6, 1)).reshape(-1, 1)
             q_err = np.vstack((zero_vector, q_err_temp))
 
             # Desired body position - current body position
             dx_b = kp * (x_b[i].T - x2).reshape(-1, 1)
+            dx_b = np.zeros((6, 1))
             # Desired swing position - current swing position
-            dx_sw = (x_sw[i].T - x3).reshape(-1, 1)
+            dx_sw = 2*(x_sw[i].T - x3).reshape(-1, 1)
+            # dx_sw = np.zeros((6, 1))
+
+            # print("x1", x1)
+            # print("x2", x2)
+            # print("x3", x3)
+            # print("x_b i-1: ", x_b[10].T)
             
-            print("x1", x1)
-            print("x2", x2)
-            print("x3", x3)
-            print("x_b i-1: ", x_b[10].T)
-            
-            print("x_b: ", x_b[1].T)
-            print("x_sw i-1: ", x_sw[10].T)
-            print("x_sw: ", x_sw[1].T)
+            # print("x_b: ", x_b[1].T)
+            # print("x_sw i-1: ", x_sw[10].T)
+            # print("x_sw: ", x_sw[1].T)
             print("dx_b: ", dx_b.T)
             print("dx_sw: ", dx_sw.T)
 
 
-            N1 = np.eye(m) - np.linalg.pinv(J1) @ J1
-            # N1 = J1 @ np.linalg.pinv(J1.T @ J1) @ J1.T
-            # print("N1: ", N1.shape)
-            # N1_min = sp.null_space(J1)
-            # print("N1_min: ", N1_min.shape)
-            # print("N1_lee: ", N1_lee.shape)
-
-            print("J2: ", J2.shape)
-            print("N1: ", N1.shape)
+            N1 = np.eye(m) - np.linalg.pinv(J1,rcond=1e-4) @ J1      
             J_21 = J2 @ N1
-
-            N_21 = np.eye(m) - np.linalg.pinv(J_21) @ J_21
+            N_21 = np.eye(m) - np.linalg.pinv(J_21,rcond=1e-4) @ J_21
             # N_21 = J_21 @ np.linalg.pinv(J_21.T @ J_21) @ J_21.T           # Compute joint velocities
-            
-            q1_dot = np.linalg.pinv(J_21) @ dx_b
-            q2_dot = np.linalg.pinv(J3 @ N_21) @ (dx_sw - J3 @ q1_dot)
-            q3_dot = N_21 @ q_err
-            # q_dot = q1_dot + q2_dot + q3_dot
-            q_dot = q1_dot + q2_dot
+            np.set_printoptions(precision=3, suppress=True)
+            # print("J1: ", J1)
+            # print("J2: ", J2)
+            # print("N1: ", N1)
+            # print("J_21: ", J_21)
+            # print("N_21: ", N_21)
+            print("J_21 inv: ", np.linalg.pinv(J_21,rcond=1e-4))
+
+            q1_dot = np.linalg.pinv(J_21,rcond=1e-4) @ dx_b
+            q2_dot = np.linalg.pinv(J3 @ N_21,rcond=1e-4) @ (dx_sw - J3 @ q1_dot)
+            N_321 = np.eye(m) - np.linalg.pinv(J3 @ N_21,rcond=1e-4) @ J3 @ N_21
+            q3_dot = N_321 @ q_err
+            q_dot = q1_dot + q2_dot + q3_dot
+            # q_dot = q1_dot + q2_dot
             dq_cmd = q_dot[6:m].flatten()
 
             # Compute new joint angles
-            new_joint_angles = joint_angles + dq_cmd * self.step_size
+            new_joint_angles = joint_angles + dq_cmd
+            # new_joint_angles = joint_angles + dq_cmd * self.step_size * kp
+
+
             # Check joint limits
             # new_joint_angles = self.check_joint_limits(new_joint_angles)
             
@@ -279,21 +285,21 @@ class InverseKinematic(Kinematics):
                                 3.28,0.384,6.96,-3.28,0.384,6.96]
             # Send motor commands
             # time.sleep(self.step_size*10)
-            # self.send_motor_commands(new_joint_angles, dq_cmd, required_torques)
+            self.send_motor_commands(new_joint_angles, dq_cmd, required_torques)
            
             
-            print("q1_dot: ", q1_dot.T)
+            # print("q1_dot: ", q1_dot.T)
             print("q2_dot: ", q2_dot.T)
-            # print("q3_dot: ", q3_dot.T)
+            print("q3_dot: ", q3_dot.T)
             
             print("Motor commands sent.", dq_cmd)
             print("Joint angles updated.", new_joint_angles)
-            print("prev joint angles: ", joint_angles)
-            print("command data", self.data.ctrl)
+            print("current joint angles: ", joint_angles)
+            # print("command data", self.data.ctrl)
             print("iteration: ", i) 
             # print("Required torques: ", required_torques)
             
-            self.send_motor_commands(new_joint_angles, dq_cmd, required_torques)
+            #  self.send_motor_commands(new_joint_angles, dq_cmd, required_torques)
     def transition_legs(self):
         """
         Swap the swing and contact legs for the next cycle.
@@ -307,15 +313,37 @@ class InverseKinematic(Kinematics):
         """
 
         for i, angle in enumerate(new_joint_angles):
+            current_angle = self.get_current_joint_angles()[i]
             self.cmd.motor_cmd[i].q  = angle
-            self.cmd.motor_cmd[i].dq = q_dot[i]
-            self.cmd.motor_cmd[i].kp = 10
+            self.cmd.motor_cmd[i].dq = 0
+            self.cmd.motor_cmd[i].kp = 100
             self.cmd.motor_cmd[i].kd = 5
-            self.cmd.motor_cmd[i].tau = torque[i]
+            self.cmd.motor_cmd[i].tau = 0
 
-        self.cmd.crc = self.crc.Crc(self.cmd)
-        self.pub.Write(self.cmd)
-        time.sleep(self.step_size)
+        # self.cmd.crc = self.crc.Crc(self.cmd)
+        # self.pub.Write(self.cmd)
+        # time.sleep(self.step_size)
+        # Interpolate between current and new joint angles using tanh for smooth transition
+        # interpolation_steps = 10
+        # joint_angles = self.get_current_joint_angles()
+        # for step in range(interpolation_steps):
+        #     phase = np.tanh(step / interpolation_steps)
+        #     interpolated_angles = joint_angles + (new_joint_angles - joint_angles) * phase
+        #     interpolated_q_dot = q_dot * phase
+        #     for i, angle in enumerate(interpolated_angles):
+        #         self.cmd.motor_cmd[i].q = angle
+        #         # self.cmd.motor_cmd[i].dq = interpolated_q_dot[i]
+        #         self.cmd.motor_cmd[i].dq = 0
+        #         self.cmd.motor_cmd[i].kp = 100 - 50 * phase  # kp between 50 and 30
+        #         self.cmd.motor_cmd[i].kd = 10 - 5 * phase  # kd between 30 and 10
+        #         # self.cmd.motor_cmd[i].tau = torque[i]
+        #         self.cmd.motor_cmd[i].tau = 0
+
+            self.cmd.crc = self.crc.Crc(self.cmd)
+            self.pub.Write(self.cmd)
+            time.sleep(self.step_size)
+            # time.sleep(self.step_size / interpolation_steps)
+
 
     def move_to_initial_position(self):
         """
@@ -366,6 +394,9 @@ class InverseKinematic(Kinematics):
         # Apply these torques to the actuators
         self.data.ctrl[:] = gravity_compensation[6:]
         print("Gravity compensation applied.", gravity_compensation)
+
+
+
             
 
 # Example Usage
@@ -380,5 +411,12 @@ if __name__ == "__main__":
     ik.start_joint_updates()
     # ik.apply_gravity_compensation()
     ik.move_to_initial_position()
+    xTraj_b,xTraj_sw = ik.compute_desired_value()
+
+    # visualize the trajectory
+    ik.visualize_trajectory(xTraj_b)
+    ik.visualize_trajectory(xTraj_sw)
+
+
     
-    ik.calculate()
+    # ik.calculate()
