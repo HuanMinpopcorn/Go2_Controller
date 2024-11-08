@@ -9,6 +9,11 @@ from unitree_sdk2py.core.channel import (
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_, LowState_, SportModeState_
 from read_JointState import read_JointState
 from read_TaskSpace import read_TaskSpace
+from PhysicalSim import PhysicalSim
+
+
+
+
 
 MOTOR_SENSOR_NUM = 3
 class Kinematics:
@@ -20,9 +25,9 @@ class Kinematics:
             xml_path (str): Path to the MuJoCo XML file for the robot.
         """
         # ChannelFactoryInitialize(1, "lo")  # Initialize communication channel
-        self.model = mujoco.MjModel.from_xml_path(xml_path)
-        self.data = mujoco.MjData(self.model)
-        
+        self.model = PhysicalSim.load_model_from_xml(xml_path)
+        self.data = PhysicalSim.create_data(self.model)  
+
         self.joint_state_reader = read_JointState()  # Initialize joint state reader
         self.joint_angles = self.joint_state_reader.joint_angles
         
@@ -38,6 +43,7 @@ class Kinematics:
 
         self.num_motor = self.model.nu
         self.dim_motor_sensor = MOTOR_SENSOR_NUM * self.num_motor
+        self.sensor_data = np.zeros(self.dim_motor_sensor)
     
     # TODO : Update the correct current joint state of the robot
     def set_joint_angles(self):
@@ -60,7 +66,7 @@ class Kinematics:
         """
         try:
             # Perform forward kinematics calculations using MuJoCo
-            mujoco.mj_forward(self.model, self.data)
+            PhysicalSim.forward(self.model, self.data)
 
             # # Optional debug statements to monitor the forward kinematics update
             # print("Forward kinematics updated:")
@@ -82,7 +88,7 @@ class Kinematics:
             dict: Contains 3D position and 3x3 orientation matrix of the body.
         """
        
-        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+        body_id = PhysicalSim.get_body_id(self.model, body_name)
         position = np.copy(self.data.xpos[body_id])  # 3D position
         orientation_quat = np.copy(self.data.xquat[body_id])  # Quaternion orientation
         orientation = self.convert_quat_to_euler(orientation_quat)  # Euler angles
@@ -99,10 +105,10 @@ class Kinematics:
         Returns:
             dict: Contains the translational and rotational Jacobians.
         """
-        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+        body_id = PhysicalSim.get_body_id(self.model, body_name)
         J_pos = np.zeros((3, self.model.nv))
         J_rot = np.zeros((3, self.model.nv))
-        mujoco.mj_jacBody(self.model, self.data, J_pos, J_rot, body_id)
+        PhysicalSim.compute_jacobian(self.model, self.data, J_pos, J_rot, body_id)
         
         if self.check_Jacobian_singularity(J_pos) or self.check_Jacobian_singularity(J_rot):
             print(f"Jacobian for {body_name} is singular.")
@@ -129,9 +135,9 @@ class Kinematics:
         Continuously updates the joint angles in the background.
         """
         while self.running:
-            self.joint_angles = self.joint_state_reader.joint_angles
-            self.imu_data = self.joint_state_reader.imu_data
-            self.robot_state = self.task_space_reader.robot_state
+            # self.joint_angles = self.joint_state_reader.joint_angles
+            # self.imu_data = self.joint_state_reader.imu_data
+            # self.robot_state = self.task_space_reader.robot_state
             self.set_joint_angles()
             self.run_fk()
             time.sleep(0.01)  # Control update frequency
@@ -222,6 +228,7 @@ if __name__ == "__main__":
     ROBOT_SCENE = "../unitree_mujoco/unitree_robots/go2/scene.xml"
     fk = Kinematics(ROBOT_SCENE)
 
+    
 
     
     fk.start_joint_updates()
@@ -235,6 +242,7 @@ if __name__ == "__main__":
             # print(fk.get_current_joint_angles())
             # print("\n=== Sensor Data ===")
             print(f"qpos: {fk.data.qpos}")
+            print(f"qvel: {fk.mj_getState}")
             # print(f"qpos0: {kinematics.model.qpos0}")
             # print(f"   
             # kinematics.read_the_imu_data()
