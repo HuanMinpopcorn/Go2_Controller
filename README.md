@@ -1,11 +1,11 @@
 # Go2 Controller 
-1. FK Kinematics
-2. IK Kinematics
+1. Forward Kinematics (FK)
+2. Inverse Kinematics (IK)
 3. Jacobian
-4. Low-lever control command
-5. 
+4. Low-level control command
+5. PysicalSim: Open the viewer from a class
 
-# Indetify the Go2.XML 
+# Identify the Go2.XML
 
 From the XML, the legs and joints are organized as follows:
 
@@ -25,10 +25,19 @@ From the XML, the legs and joints are organized as follows:
         Joints: RR_hip_joint, RR_thigh_joint, RR_calf_joint
         End-effector: RR_foot
 
-# unitree_sdk2py_bridge API 
-In ```unitree_sdk2py_bridge.py```, it provide that mujoco published the topic 
+# unitree_sdk2py_bridge API
+
+In `unitree_sdk2py_bridge.py`, the following topics are published by Mujoco:
+
 ```
 TOPIC_LOWSTATE = "rt/lowstate"
 TOPIC_HIGHSTATE = "rt/sportmodestate"
 ```
-which provide the joint state (q,dq,tau) and robot configuration (x,y,z,dx,dy,dz)
+
+These topics provide joint states (q, dq, tau) which are not equal to qpos because the order is changed, as well as IMU data and power data. The high state "sportmodestate" provides imu positions (x, y, z, dx, dy, dz) which are not equal to xpos.
+
+These two topics' value is not good for kinematic calculation!!!!
+
+# how to read the correct xpos and qpos
+We need to read the xpos and qpos from simulation which is from viewer or sim or in gui -> watch -> field, index will give the correct value. 
+

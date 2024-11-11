@@ -22,7 +22,7 @@ class read_JointState:
         """
         for i in range(12):
             self.joint_angles_temp[i] = msg.motor_state[i].q
-            
+            # self.joint_angles[i] = msg.motor_state[i].q
         for j in range(4):
             self.imu_data[j] = msg.imu_state.quaternion[j] # IMU data
   
@@ -41,7 +41,9 @@ if __name__ == "__main__":
     # Keep the program running to continue receiving data
     while True:
         time.sleep(1.0)
-        joint_angles = joint_state_reader.joint_angles
-        print("\n=== Joint States ===")
-        print(joint_angles)
+        
+        print("\n=== Joint States ordinary ===")
+        print(joint_state_reader.joint_angles_temp)
+        print("\n=== joint Data after change the order ===")
+        print(joint_state_reader.joint_angles)
         

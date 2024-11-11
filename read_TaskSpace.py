@@ -12,6 +12,8 @@ class read_TaskSpace:
         sub = ChannelSubscriber("rt/sportmodestate", SportModeState_)
         sub.Init(self.high_state_handler, 10)
         self.robot_state = unitree_go_msg_dds__SportModeState_()
+        self.imu_pos = np.array([-0.02557, 0, 0.04232])
+
 
 
     def high_state_handler(self, msg: SportModeState_):
@@ -20,7 +22,8 @@ class read_TaskSpace:
         """
         global robot_state
         self.robot_state = msg
-
+        # imu has an offset from the robot's base link
+        self.robot_state.position = self.robot_state.position - self.imu_pos
     # the robot state include
     # position
     # velocity
@@ -39,8 +42,9 @@ if __name__ == "__main__":
     while True:
         time.sleep(1.0)
         robot_state = task_space_reader.robot_state
+        np.set_printoptions(precision=4, suppress=True)
         print("\n=== Task States read the postion x and velocity v===")
-        print(robot_state.position)
+        print(np.array(robot_state.position))
         print("===============================================")
         print(robot_state.foot_position_body)
 
