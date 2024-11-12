@@ -48,11 +48,14 @@ class Kinematics:
         """
         Sets the joint angles in the MuJoCo qpos array.
         """
-        self.data.qpos[:3] = self.robot_state.position 
+        
+        # self.data.qpos[:3] = [0,0,0]
+        # self.data.qpos[3:7] = [1,0,0,0]
         # print(f"robot_state.position: {self.robot_state.position}") 
+        self.data.qpos[:3] = self.robot_state.position 
         self.data.qpos[3:7] = self.imu_data
         self.data.qpos[7:] = self.joint_angles
-    
+        # I want to compute is body position and orientation in base_link frame
 
     def run_fk(self):
         """
@@ -61,9 +64,12 @@ class Kinematics:
         kinematics process and error checking.
         """
         mujoco.mj_forward(self.model, self.data)
+
+
     def get_body_state(self, body_name):
         """
         Retrieves the position and orientation of the specified body.
+        in global frame
 
         Parameters:
             body_name (str): Name of the body to retrieve the state for.
@@ -79,7 +85,7 @@ class Kinematics:
         orientation = self.convert_quat_to_euler(orientation_quat)  # Euler angles
 
         return {"position": position, "orientation": orientation}
-
+  
     def get_jacobian(self, body_name):
         """
         Computes the Jacobian matrix for a given body.

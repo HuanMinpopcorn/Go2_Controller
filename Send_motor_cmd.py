@@ -21,6 +21,15 @@ MOTOR_SENSOR_NUM = 3
 NUM_MOTOR_IDL_GO = 20
 NUM_MOTOR_IDL_HG = 35
 
+STAND_UP_JOINT_POS = np.array([
+            0.052, 1.12, -2.10, -0.052, 1.12, -2.10,
+            0.052, 1.12, -2.10, -0.052, 1.12, -2.10
+        ], dtype=float)
+
+STAND_DOWN_JOINT_POS = np.array([
+            0.0473455, 1.22187, -2.44375, -0.0473455, 1.22187, -2.44375,
+            0.0473455, 1.22187, -2.44375, -0.0473455, 1.22187, -2.44375
+        ], dtype=float)
 class send_motor_commands():
     def __init__(self):
         if len(sys.argv) <2:
@@ -33,6 +42,8 @@ class send_motor_commands():
         self.cmd = self._initialize_motor_commands()
         self.crc = CRC()
         self.step_size = config.SIMULATE_DT
+               # Define initial and final joint positions for smooth transition
+
         # self.update_thread = threading.Thread(target=self.update_motor_commands)
         # self.update_thread.daemon = True
         # self.update_thread.start()
@@ -58,12 +69,12 @@ class send_motor_commands():
         """
         Send motor commands to the robot using the publisher.
         """
-        for i, angle in enumerate(new_joint_angles):
-            self.cmd.motor_cmd[i].q  = angle
+        for i in range(12):
+            self.cmd.motor_cmd[i].q  = new_joint_angles[i]
             self.cmd.motor_cmd[i].dq = q_dot[i]
             self.cmd.motor_cmd[i].kp = kp
             self.cmd.motor_cmd[i].kd = kd
-            self.cmd.motor_cmd[i].tau = torque[i]
+            # self.cmd.motor_cmd[i].tau = torque[i]
 
         self.cmd.crc = self.crc.Crc(self.cmd)
         self.low_cmd_pub.Write(self.cmd)
@@ -77,21 +88,10 @@ class send_motor_commands():
             self.low_cmd_pub.Write(self.cmd)
             time.sleep(self.step_size)
 
-    def move_to_initial_position(self):
+    def move_to_initial_position(self, current_joint_angles = STAND_DOWN_JOINT_POS , target_joint_angles = STAND_UP_JOINT_POS):
         """
         Smoothly transition to the initial standing position and maintain it.
         """
-        # Define initial and final joint positions for smooth transition
-        stand_up_joint_pos = np.array([
-            0.052, 1.12, -2.10, -0.052, 1.12, -2.10,
-            0.052, 1.12, -2.10, -0.052, 1.12, -2.10
-        ], dtype=float)
-
-        stand_down_joint_pos = np.array([
-            0.0473455, 1.22187, -2.44375, -0.0473455, 1.22187, -2.44375,
-            0.0473455, 1.22187, -2.44375, -0.0473455, 1.22187, -2.44375
-        ], dtype=float)
-
         print("Transitioning to initial position...")
         print("Press Ctrl+ C to enter Trot Gait ...")
         running_time = 0.0
@@ -103,8 +103,8 @@ class send_motor_commands():
                 # Smoothly transition to the initial position
                 phase = np.tanh(running_time / 1.2)
                 for i in range(12):
-                    self.cmd.motor_cmd[i].q = phase * stand_up_joint_pos[i] + (
-                        1 - phase) * stand_down_joint_pos[i]
+                    self.cmd.motor_cmd[i].q = phase * target_joint_angles[i] + (
+                        1 - phase) * current_joint_angles[i]
                     self.cmd.motor_cmd[i].kp = phase * 50.0 + (1 - phase) * 20.0  # Gradual stiffness
                     self.cmd.motor_cmd[i].kd = 3.5
                 
