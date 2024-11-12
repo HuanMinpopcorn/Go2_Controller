@@ -42,11 +42,7 @@ class send_motor_commands():
         self.cmd = self._initialize_motor_commands()
         self.crc = CRC()
         self.step_size = config.SIMULATE_DT
-               # Define initial and final joint positions for smooth transition
-
-        # self.update_thread = threading.Thread(target=self.update_motor_commands)
-        # self.update_thread.daemon = True
-        # self.update_thread.start()
+        # self.step_size = 0.001
 
     def _initialize_motor_commands(self):
         """

@@ -48,10 +48,6 @@ class Kinematics:
         """
         Sets the joint angles in the MuJoCo qpos array.
         """
-        
-        # self.data.qpos[:3] = [0,0,0]
-        # self.data.qpos[3:7] = [1,0,0,0]
-        # print(f"robot_state.position: {self.robot_state.position}") 
         self.data.qpos[:3] = self.robot_state.position 
         self.data.qpos[3:7] = self.imu_data
         self.data.qpos[7:] = self.joint_angles
@@ -148,10 +144,20 @@ class Kinematics:
             np.ndarray: Euler angles.
         """
         q0, q1, q2, q3 = quat
-        roll = np.arctan2(2*(q0*q1 + q2*q3), 1 - 2*(q1**2 + q2**2))
-        pitch = np.arcsin(2*(q0*q2 - q3*q1))
-        yaw = np.arctan2(2*(q0*q3 + q1*q2), 1 - 2*(q2**2 + q3**2))
-        return np.array([roll, pitch, yaw])
+        # Avoid singularities by clamping the pitch value
+        sin_pitch = 2 * (q0 * q2 - q3 * q1)
+        sin_pitch = np.clip(sin_pitch, -1.0, 1.0)
+        
+        roll = np.arctan2(2 * (q0 * q1 + q2 * q3), 1 - 2 * (q1**2 + q2**2))
+        pitch = np.arcsin(sin_pitch)
+        yaw = np.arctan2(2 * (q0 * q3 + q1 * q2), 1 - 2 * (q2**2 + q3**2))
+        
+        # Constrain roll, pitch, and yaw angles
+        roll = np.clip(roll, -np.pi/2, np.pi/2)
+        pitch = np.clip(pitch, -np.pi/2, np.pi/2)
+        yaw = np.clip(yaw, -np.pi, np.pi)
+        
+        return np.array([roll, pitch, yaw]).round(3)
 
     def update_joint_angles(self):
         """
@@ -202,7 +208,13 @@ if __name__ == "__main__":
         fk = Kinematics(sim)
 
         # # ====== end =====
+    def change_q_order(q):
 
+        return np.array(
+            [
+                q[3], q[4], q[5], q[0], q[1], q[2], q[9], q[10], q[11], q[6], q[7], q[8]
+            ]
+        )
     try:
         while True:
             # Print kinematics for 'FL_foot'
@@ -212,9 +224,10 @@ if __name__ == "__main__":
             print("\n=== Joint Angles ===")
             print(np.array(fk.data.qpos[7:]))
             print("\n=== sensor Data ===")
-            print(np.array(fk.data.sensordata[:12]))
-            print("\n=== model gravity Data ===")
-            print(np.array(fk.data.qfrc_bias[6:]))
+            print(change_q_order(np.array(fk.data.sensordata[:12])))
+            print("\n=== model imu  Data ===")
+            print(np.array(fk.imu_data))
+            # print(np.array(fk.data.qfrc_bias[6:]))
 
             # print(f"difference" , fk.diff, fk.diff_quat)
 
