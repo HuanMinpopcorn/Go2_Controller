@@ -179,7 +179,8 @@ class InverseKinematic(Kinematics):
             # print("i", i)  
             running_time += self.step_size
             phase = np.tanh(running_time / 1.2)
-            kp = 60 * phase + (1 - phase) * 30  # Gradual stiffness
+            # kp = 50 * phase + (1 - phase) * 20 # Gradual stiffness 
+            kp = 69 # Gradual stiffness
             kd =  3.5 # Gradual damping
           
             # if i == 0:
@@ -237,12 +238,12 @@ class InverseKinematic(Kinematics):
             # x3_data.append(x3.copy())
             q_desired_data.append(self.change_q_order(stand_up_joint_pos))
             q_current_data.append(joint_angles.copy())
-            q_err_data.append(q_err.copy())
+            q_err_data.append(q_err[6:].copy())
             q3_dot_data.append(q3_dot[6:].T.copy())
 
             
             
-            new_joint_angles = joint_angles + dq_cmd + 0.
+            new_joint_angles = joint_angles + dq_cmd 
             # new_joint_angles = self.check_joint_limits(new_joint_angles)
             # gravity_torque = np.array(self.data.qfrc_bias[6:]).flatten()
 
@@ -392,7 +393,44 @@ class InverseKinematic(Kinematics):
         plt.xlabel('Iteration')
         plt.ylabel('q')
         plt.legend()
+
+        plt.figure()
+        plt.subplot(4, 1, 1)
+        for joint in range(3):
+ 
+            plt.plot([qe[joint] for qe in q_error], label=f'q_error[{joint}]', linestyle='-.')
+        plt.title('q_error Over Time')
+        plt.xlabel('Iteration')
+        plt.ylabel('q')
+        plt.legend()
+
+        plt.subplot(4, 1, 2)
+        for joint in range(3, 6):
+
+            plt.plot([qe[joint] for qe in q_error], label=f'q_error[{joint}]', linestyle='-.')
+        plt.title('q_error Over Time')
+        plt.xlabel('Iteration')
+        plt.ylabel('q')
+        plt.legend()
+
+        plt.subplot(4, 1, 3)
+        for joint in range(6, 9):
+        
+            plt.plot([qe[joint] for qe in q_error], label=f'q_error[{joint}]', linestyle='-.')
+        plt.title('q_error Over Time')
+        plt.xlabel('Iteration')
+        plt.ylabel('q')
+        plt.legend()
+
+        plt.subplot(4, 1, 4)
+        for joint in range(9, 12):
+            plt.plot([qe[joint] for qe in q_error], label=f'q_error[{joint}]', linestyle='-.')
+        plt.title('q_error Over Time')
+        plt.xlabel('Iteration')
+        plt.ylabel('q')
+        plt.legend()
         plt.show()
+
     def plot_api_value(self, dq_error, dq_dot):
         plt.figure()
         plt.subplot(2, 1, 1)
