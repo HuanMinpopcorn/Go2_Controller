@@ -179,10 +179,12 @@ class InverseKinematic(Kinematics):
             # print("i", i)  
             running_time += self.step_size
             phase = np.tanh(running_time / 1.2)
-            # kp = 50 * phase + (1 - phase) * 20 # Gradual stiffness 
-            kp = 69 # Gradual stiffness
-            kd =  3.5 # Gradual damping
-          
+            # kp = 70 * phase + (1 - phase) * 30 # Gradual stiffness
+            kp = 70 
+            # print("kp", kp)
+            # kp = 69 # Gradual stiffness
+            # kd =  3.5 # Gradual damping
+            kd = 5 
             # if i == 0:
             #     leg_pair_in_swing = not leg_pair_in_swing
             #     self.transition_legs()
@@ -433,17 +435,24 @@ class InverseKinematic(Kinematics):
 
     def plot_api_value(self, dq_error, dq_dot):
         plt.figure()
-        plt.subplot(2, 1, 1)
+        plt.subplot(3, 1, 1)
         for joint in range(12):
             plt.plot([data[joint] for data in dq_error], label=f'dq_error[{joint}]')
+        plt.legend()
         plt.title('dq_error Over Time')
         plt.xlabel('Iteration')
         plt.ylabel('dq_error')
 
-        plt.subplot(2, 1, 2)
+        plt.subplot(3, 1, 2)
         for joint in range(12):
             plt.plot([data[joint] for data in dq_dot], label=f'dq_dot[{joint}]')
         plt.title('dq_dot Over Time')
+        plt.legend()
+        
+        plt.subplot(3, 1, 3)
+        for joint in range(12):
+            plt.plot([data[joint] for data in dq_error + dq_dot], label=f'output[{joint}]')
+        plt.title('Output Over Time')
         plt.legend()
         plt.show()
 
