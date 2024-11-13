@@ -29,7 +29,7 @@ class InverseKinematic(Kinematics):
     def __init__(self, xml_path, cmd, step_size=config.SIMULATE_DT):
         super().__init__(xml_path)
         self.step_size = step_size
-        self.swing_time =  10  # Duration of swing phase
+        self.swing_time =  1 # Duration of swing phase
         self.K = int(self.swing_time / self.step_size)  # Number of steps for swing
 
         # Robot parameters
@@ -103,7 +103,12 @@ class InverseKinematic(Kinematics):
         body_configuration_initial = np.copy(body_configuration)
         for i in range(self.K):
             body_configuration[0] = body_configuration_initial[0] + self.velocity * i * self.step_size
-            body_configuration[2] = body_configuration_initial[2] + 0.05 * np.sin(np.pi * i / (2 * self.K))
+            # if i < self.K / 10:
+            #     body_configuration[0] = body_configuration_initial[0] + 0.05 * np.sin(np.pi * 10*i / (2*self.K ))
+            # else:
+            #     body_configuration[0] = body_configuration_initial[0] + 0.05
+            
+            # body_configuration[2] = body_configuration_initial[2] + 0.1 * np.sin(np.pi * i / (self.K))
             body_trajectory.append(body_configuration.copy())
 
             # Generate swing leg trajectories
@@ -143,19 +148,26 @@ class InverseKinematic(Kinematics):
         # intial the API gain 
         # kp = 120
         # kd = 5
-        kp = 45
-        # kp = 50
-        kd = 4
+
+        # kp = 47
+        # kp = 70
+        kp = 250
+        # kd = 4
+        # kd = 20
+        kd = 10
 
         # kd = 4
         kc = 1
         # Gain for joint position error
+        # default 
+        kb = 2
+        ks = 3
         # kb : 2.5 - 3
-        kb = 4.955
+        # kb = 4.955
         # kb = 5.8103
         # Gain for joint velocity error
         # ks = 15
-        ks = 0
+        # ks = 5
 
         m = self.model.nv
         i = 0
@@ -190,6 +202,8 @@ class InverseKinematic(Kinematics):
         print("Starting Trot Gait...")
         print("initial body state", self.get_body_state(self.body_frame_name))
         intial_joint_angles = self.joint_state_reader.joint_angles.copy()
+        print("initial joint angles", intial_joint_angles)
+
         # initial desired trajectory 
         x_b, x_sw = self.compute_desired_value()
         while True:
@@ -207,9 +221,50 @@ class InverseKinematic(Kinematics):
         
             # print(x_b[i].T - x2)
             
-            dx_b = kb * (x_b[i].T - x2).reshape(-1, 1) # body state : xyz + rpy 
+            #  Case 1: full-contact and standing up and down test
+            # Jc = np.vstack([J1, J3])
+            # Nc = np.eye(m) - np.linalg.pinv(Jc, rcond=1e-4) @ Jc
+            # Jb_c = J2 @ Nc
+            # Nb_c = np.eye(m) - np.linalg.pinv(Jb_c, rcond=1e-4) @ Jb_c
+
+            # dx_b = kb * (x_b[i].T - x2).reshape(-1, 1) # body state : xyz + rpy 
+
+            # q1_dot = np.linalg.pinv(Jb_c, rcond=1e-4) @ dx_b
+            # q2_dot = Nb_c @ (q_err - q1_dot)
+
+            # q_dot = q1_dot + q2_dot
+            # # q_dot = q1_dot + q3_dot
+            # dq_cmd = q_dot[6:].flatten()
+            # new_joint_angles = joint_angles + dq_cmd  
+
+
+            # Case 2: three contact and 1 swing leg
+            # J_swing= J3[3:, :]
+            # J_contact = J3[:3, :]
+            # Jc = np.vstack([J1, J_contact])
+            Jc = J1
+            Nc = np.eye(m) - np.linalg.pinv(Jc,rcond=1e-5) @ Jc
+
+            Jb_c = J2 @ Nc
+            Nb_c = Nc - np.linalg.pinv(Jb_c,rcond=1e-5) @ Jb_c
+
+            Jsw_bc = J3 @ Nb_c        
+            Nsw_bc = Nb_c - np.linalg.pinv(Jsw_bc, rcond=1e-5) @ Jsw_bc
+
+            dx_b = kb * (x_b[i].T - x2).reshape(-1, 1) # body state : xyz + rpy
             dx_sw = ks * (x_sw[i].T - x3).reshape(-1, 1)
-            # print("dx_sw", dx_sw.T)
+            # dx_sw = np.array([0, 0, dx_sw_full[2], 0, 0, dx_sw_full[5]]).reshape(-1, 1)
+
+            q1_dot = np.linalg.pinv(Jb_c, rcond=1e-4) @ dx_b
+            # dx_sw = J_swing @ q1_dot
+            q2_dot = np.linalg.pinv(Jsw_bc, rcond=1e-4) @ (dx_sw - J3 @ q1_dot)
+            q3_dot = Nsw_bc @ (q_err - q1_dot - q2_dot)
+
+            q_dot = q1_dot + q2_dot + q3_dot
+            # check the velocity on the base link
+
+            dq_cmd = q_dot[6:].flatten()
+            new_joint_angles = joint_angles + dq_cmd  
 
             xb_data.append(x_b[i].T)
             x2_data.append(x2.flatten())
@@ -217,24 +272,8 @@ class InverseKinematic(Kinematics):
 
             xw_data.append(x_sw[i].T)
             x3_data.append(x3.flatten())
-            dx_sw_data.append(dx_sw.flatten())
+            dx_sw_data.append(dx_sw.flatten())         
 
-        
-            
-        
-            N1 = np.eye(m) - np.linalg.pinv(J1, rcond=1e-4) @ J1      
-            J_21 = J2 @ N1
-            N_21 = np.eye(m) - np.linalg.pinv(J_21, rcond=1e-4) @ J_21      
-     
-            q1_dot = np.linalg.pinv(J_21, rcond=1e-4) @ dx_b
-            # q1_dot = np.zeros(18).reshape(-1, 1)
-            q2_dot = np.linalg.pinv(J3 @ N_21, rcond=1e-4) @ (dx_sw - J3 @ q1_dot)
-            N_321 = np.eye(m) - np.linalg.pinv(J3 @ N_21, rcond=1e-4) @ J3 @ N_21
-            q3_dot = N_321 @ q_err
-            q_dot = q1_dot + q2_dot + q3_dot
-            # q_dot = q1_dot + q3_dot
-            dq_cmd = q_dot[6:].flatten()
-            new_joint_angles = joint_angles + dq_cmd  
 
 
             
@@ -261,7 +300,7 @@ class InverseKinematic(Kinematics):
 
             trail += 1
             # print("Trail: ", trail)
-            if trail > 1000:  # Replace or remove as needed
+            if trail > 2000:  # Replace or remove as needed
                 break
 
         self.plot_api_value(dq_error_data, dq_dot_data, ouput_data)
@@ -458,6 +497,7 @@ class InverseKinematic(Kinematics):
             plt.xlabel('Iteration')
             plt.ylabel(f'{label.capitalize()}')
             plt.legend()
+            # plt.axis('equal',)
 
         plt.tight_layout()
 

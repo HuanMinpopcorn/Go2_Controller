@@ -21,21 +21,25 @@ MOTOR_SENSOR_NUM = 3
 NUM_MOTOR_IDL_GO = 20
 NUM_MOTOR_IDL_HG = 35
 
+# STAND_UP_JOINT_POS = np.array([
+#             0.052, 1.12, -2.10, -0.052, 1.12, -2.10,
+#             0.052, 1.12, -2.10, -0.052, 1.12, -2.10
+#         ], dtype=float)
+
 STAND_UP_JOINT_POS = np.array([
-            0.052, 1.12, -2.10, -0.052, 1.12, -2.10,
-            0.052, 1.12, -2.10, -0.052, 1.12, -2.10
+            0.062, 1.02, -1.80, -0.062, 1.02, -1.80,
+            0.062, 1.02, -1.80, -0.062, 1.02, -1.80
         ], dtype=float)
 
 STAND_DOWN_JOINT_POS = np.array([
             0.0473455, 1.22187, -2.44375, -0.0473455, 1.22187, -2.44375,
             0.0473455, 1.22187, -2.44375, -0.0473455, 1.22187, -2.44375
         ], dtype=float)
+
 class send_motor_commands():
     def __init__(self):
-        if len(sys.argv) <2:
-            ChannelFactoryInitialize(1, "lo")
-        else:
-            ChannelFactoryInitialize(0, sys.argv[1])
+        ChannelFactoryInitialize(1, "lo")
+    
 
         self.low_cmd_pub = ChannelPublisher(TOPIC_LOWCMD, LowCmd_) 
         self.low_cmd_pub.Init()
