@@ -38,6 +38,7 @@ class Kinematics:
 
         self.joint_state_reader = read_JointState()  # Initialize joint state reader
         self.joint_angles = self.joint_state_reader.joint_angles
+
         self.task_space_reader = read_TaskSpace()
         self.robot_state = self.task_space_reader.robot_state
         self.imu_data = self.joint_state_reader.imu_data
@@ -76,7 +77,11 @@ class Kinematics:
        
         body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
         # print(f"body_id: {body_id}")
-        position = np.copy(self.data.xpos[body_id])  # 3D position
+        if body_name == "world" or body_name == "base_link":
+            # position = np.array([0, 0, 0])
+            position = np.copy(self.data.xpos[body_id])  # 3D position # global frame
+        else :
+            position = np.copy(self.get_foot_position_in_hip_frame(body_id))  # 3D position # hip frame
         orientation_quat = np.copy(self.data.xquat[body_id])  # Quaternion orientation
         orientation = self.convert_quat_to_euler(orientation_quat)  # Euler angles
 
@@ -102,6 +107,23 @@ class Kinematics:
 
         return {"J_pos": J_pos, "J_rot": J_rot}
 
+
+    def get_foot_position_in_hip_frame(self, body_id):
+        """
+        Computes the position of a body in the hip frame.
+
+        Parameters:
+            body_hip (str): Name of the hip body.
+            body_foor (str): Name of the foot body.
+
+        Returns:
+            np.ndarray: Position of the foot body in the hip frame.
+        """
+        hip_state = self.data.xpos[body_id -3]
+        foot_state = self.data.xpos[body_id]
+        # Compute the position of the foot in the hip frame
+        foot_position = foot_state - hip_state
+        return foot_position
 
     def print_kinematics(self, body_name):
         """

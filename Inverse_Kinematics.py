@@ -4,20 +4,21 @@ import numpy as np
 import scipy.linalg as sp
 from Kinematics import Kinematics
 from Send_motor_cmd import send_motor_commands
+from error_plotting import ErrorPlotting
 
-
+import matplotlib.pyplot as plt
 from unitree_sdk2py.core.channel import (
     ChannelPublisher, ChannelSubscriber, ChannelFactoryInitialize
 )
 import time
-import matplotlib.pyplot as plt
+
 from unitree_sdk2py.utils.crc import CRC
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_
 from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowCmd_
-from matplotlib.animation import FuncAnimation
+
 import config
 
-# import unitree_mujoco.simulate_python.unitree_mujoco as sim 
+
 
 
 class InverseKinematic(Kinematics):
@@ -29,8 +30,9 @@ class InverseKinematic(Kinematics):
     def __init__(self, xml_path, cmd, step_size=config.SIMULATE_DT):
         super().__init__(xml_path)
         self.step_size = step_size
-        self.swing_time =  1 # Duration of swing phase
+        self.swing_time =  0.25 # 0.25 # Duration of swing phase
         self.K = int(self.swing_time / self.step_size)  # Number of steps for swing
+  
 
         # Robot parameters
         self.body_height = 0.25
@@ -41,6 +43,33 @@ class InverseKinematic(Kinematics):
         self.body_frame_name = "base_link"
         self.swing_legs = ["FL_foot", "RR_foot"]
         self.contact_legs = ["FR_foot", "RL_foot"]
+
+    def initialize(self):
+        """
+        Initialize the robot state and joint angles.
+        """
+        self.initial_joint_angles = self.joint_state_reader.joint_angles.copy()
+
+        # Get initial body and leg positions
+        self.initial_body_state = self.get_body_state(self.body_frame_name).copy()
+        self.initial_body_position = self.initial_body_state["position"]
+        self.initial_body_orientation = self.initial_body_state["orientation"]
+        self.initial_body_configuration = np.hstack((self.initial_body_position, self.initial_body_orientation))
+        self.desired_body_configuration = self.initial_body_configuration.copy()
+        # Initialize swing leg positions
+        self.initial_swing_leg_positions = [
+            np.copy(self.get_body_state(leg_name)["position"])
+            for leg_name in self.swing_legs
+        ]
+        self.initial_swing_leg_positions = np.hstack(self.initial_swing_leg_positions)
+
+        # Initialize the contact leg positions
+        self.initial_contact_leg_positions = [  
+            np.copy(self.get_body_state(leg_name)["position"])
+            for leg_name in self.contact_legs
+        ]
+        self.initial_contact_leg_positions = np.hstack(self.initial_contact_leg_positions)
+
 
     def check_joint_limits(self, joint_angles):
         """
@@ -79,40 +108,33 @@ class InverseKinematic(Kinematics):
 
         return J1, J2, J3
 
-    def compute_desired_value(self):
+    def compute_desired_body_state(self):
         """
-        Generate trajectories for the body and swing legs over the swing phase.
+        Generate trajectory for the body over the swing phase.
         """
-        print("Computing desired trajectories...")
-        body_trajectory, swing_leg_trajectory = [], []
+        print("Computing desired body state...")
+        
+        self.desired_body_configuration[0] += self.velocity * self.step_size
+  
+        return self.desired_body_configuration
 
-        # Get initial body and leg positions
-        body_state = self.get_body_state(self.body_frame_name)
-        body_position = body_state["position"]
-        body_orientation = body_state["orientation"]
-        body_configuration = np.hstack((body_position, body_orientation))
+    def compute_desired_swing_leg_trajectory(self):
+        """
+        Generate trajectories for the swing legs over the swing phase.
+        """
+        print("Computing desired swing leg trajectories...")
+        swing_leg_trajectory = []
+
         # Initialize swing leg positions
         swing_leg_positions = [
             np.copy(self.get_body_state(leg_name)["position"])
             for leg_name in self.swing_legs
         ]
         swing_leg_positions = np.hstack(swing_leg_positions)
-        # print("body_configuration", body_configuration)
-        # print("swing_leg_positions", swing_leg_positions)
+
         swing_leg_positions_initial = np.copy(swing_leg_positions)
-        body_configuration_initial = np.copy(body_configuration)
+
         for i in range(self.K):
-            body_configuration[0] = body_configuration_initial[0] + self.velocity * i * self.step_size
-            # if i < self.K / 10:
-            #     body_configuration[0] = body_configuration_initial[0] + 0.05 * np.sin(np.pi * 10*i / (2*self.K ))
-            # else:
-            #     body_configuration[0] = body_configuration_initial[0] + 0.05
-            
-            # body_configuration[2] = body_configuration_initial[2] + 0.1 * np.sin(np.pi * i / (self.K))
-            body_trajectory.append(body_configuration.copy())
-
-            # Generate swing leg trajectories
-
             swing_leg_positions[0] = swing_leg_positions_initial[0] + self.cubic_spline(i, self.K, self.velocity * self.swing_time)
             swing_leg_positions[1] = swing_leg_positions_initial[1]  # Keep Y position constant
             swing_leg_positions[2] = swing_leg_positions_initial[2] + self.swing_height * np.sin(np.pi * i / self.K)
@@ -122,11 +144,7 @@ class InverseKinematic(Kinematics):
 
             swing_leg_trajectory.append(swing_leg_positions.copy())
 
-        # Plot the trajectories
-        body_trajectory = np.array(body_trajectory)
-        swing_leg_trajectory = np.array(swing_leg_trajectory)
-      
-        return np.array(body_trajectory), np.array(swing_leg_trajectory)
+        return np.array(swing_leg_trajectory)
 
     def cubic_spline(self, t, tf, xf):
         """
@@ -136,7 +154,6 @@ class InverseKinematic(Kinematics):
         a3 = 2 * xf / tf**3
         return a2 * t**2 + a3 * t**3
 
-    import matplotlib.pyplot as plt
 
     def calculate(self):
         """
@@ -146,34 +163,19 @@ class InverseKinematic(Kinematics):
    
 
         # intial the API gain 
-        # kp = 120
-        # kd = 5
-
-        # kp = 47
-        # kp = 70
-        kp = 250
-        # kd = 4
-        # kd = 20
+        kp = 250 + 50
         kd = 10
-
-        # kd = 4
+        # intial the gain for the body and swing leg
         kc = 1
-        # Gain for joint position error
-        # default 
-        kb = 2
-        ks = 3
-        # kb : 2.5 - 3
-        # kb = 4.955
-        # kb = 5.8103
-        # Gain for joint velocity error
-        # ks = 15
-        # ks = 5
+        kb = 1 
+        ks = 1
+
 
         m = self.model.nv
         i = 0
         trail = 0
         running_time = 0
-        leg_pair_in_swing = True
+        
 
         # Data storage for plotting
         q_desired_data = []
@@ -200,27 +202,34 @@ class InverseKinematic(Kinematics):
 
 
         print("Starting Trot Gait...")
-        print("initial body state", self.get_body_state(self.body_frame_name))
-        intial_joint_angles = self.joint_state_reader.joint_angles.copy()
-        print("initial joint angles", intial_joint_angles)
 
-        # initial desired trajectory 
-        x_b, x_sw = self.compute_desired_value()
+        
+        x_sw = self.compute_desired_swing_leg_trajectory()
+        leg_pair_in_swing = True
         while True:
             i = (i + 1) % self.K  # Loop over the swing cycle duration
-            phase = np.tanh(running_time / 1.2)
+ 
+            if i == 0:
+                # over one cycle
+                self.transition_legs()
+                # time.sleep(self.step_size)
+                # x_b = self.compute_desired_body_trajectory()
+                x_sw = self.compute_desired_swing_leg_trajectory()
+                # print("Transitioning legs...")
+            
+            x_b = self.compute_desired_body_state()        # update the body state
             joint_angles = self.joint_state_reader.joint_angles
             x1, x2, x3 = self.get_required_state() 
             # x1 : contact leg positions, x2 : body state, x3 : swing leg positions
             J1, J2, J3 = self.get_required_jacobian()
             # J1 : contact leg Jacobian, J2 : body Jacobian, J3 : swing leg Jacobian
 
-            config =  (intial_joint_angles - joint_angles) # shape (12, 1)
+            config =  (self.initial_joint_angles - joint_angles) # shape (12, 1)
             q_err = kc * np.hstack((np.zeros(6), config)).reshape(-1, 1) # shape (18, 1)
-            # print("q_err", q_err.T)
-        
-            # print(x_b[i].T - x2)
+            # print("q_err", config)
             
+            # --------------------------------
+            #
             #  Case 1: full-contact and standing up and down test
             # Jc = np.vstack([J1, J3])
             # Nc = np.eye(m) - np.linalg.pinv(Jc, rcond=1e-4) @ Jc
@@ -236,37 +245,33 @@ class InverseKinematic(Kinematics):
             # # q_dot = q1_dot + q3_dot
             # dq_cmd = q_dot[6:].flatten()
             # new_joint_angles = joint_angles + dq_cmd  
-
+            # ---------------------------------    
+   
 
             # Case 2: three contact and 1 swing leg
-            # J_swing= J3[3:, :]
-            # J_contact = J3[:3, :]
-            # Jc = np.vstack([J1, J_contact])
             Jc = J1
-            Nc = np.eye(m) - np.linalg.pinv(Jc,rcond=1e-5) @ Jc
+            Nc = np.eye(m) - np.linalg.pinv(Jc, rcond=1e-5) @ Jc
 
             Jb_c = J2 @ Nc
-            Nb_c = Nc - np.linalg.pinv(Jb_c,rcond=1e-5) @ Jb_c
+            Nb_c = Nc - np.linalg.pinv(Jb_c, rcond=1e-5) @ Jb_c
 
             Jsw_bc = J3 @ Nb_c        
             Nsw_bc = Nb_c - np.linalg.pinv(Jsw_bc, rcond=1e-5) @ Jsw_bc
 
-            dx_b = kb * (x_b[i].T - x2).reshape(-1, 1) # body state : xyz + rpy
+            dx_b = kb * (x_b - x2).reshape(-1, 1)
             dx_sw = ks * (x_sw[i].T - x3).reshape(-1, 1)
-            # dx_sw = np.array([0, 0, dx_sw_full[2], 0, 0, dx_sw_full[5]]).reshape(-1, 1)
 
             q1_dot = np.linalg.pinv(Jb_c, rcond=1e-4) @ dx_b
-            # dx_sw = J_swing @ q1_dot
             q2_dot = np.linalg.pinv(Jsw_bc, rcond=1e-4) @ (dx_sw - J3 @ q1_dot)
             q3_dot = Nsw_bc @ (q_err - q1_dot - q2_dot)
 
             q_dot = q1_dot + q2_dot + q3_dot
-            # check the velocity on the base link
+
 
             dq_cmd = q_dot[6:].flatten()
             new_joint_angles = joint_angles + dq_cmd  
 
-            xb_data.append(x_b[i].T)
+            xb_data.append(x_b.T)
             x2_data.append(x2.flatten())
             dx_b_data.append(dx_b.flatten())
 
@@ -274,41 +279,28 @@ class InverseKinematic(Kinematics):
             x3_data.append(x3.flatten())
             dx_sw_data.append(dx_sw.flatten())         
 
-
-
-            
-            # Append more data for plotting 
-            # check for q3 dot
-            # q_desired_data.append(self.change_q_order(stand_up_joint_pos))
-            # q_current_data.append(joint_angles.copy())
-            # q_err_data.append(q_err[6:].copy())
             q3_dot_data.append(self.change_q_order(q3_dot[6:].flatten()))
             q2_dot_data.append(self.change_q_order(q2_dot[6:].flatten()))
             q1_dot_data.append(self.change_q_order(q1_dot[6:].flatten()))
 
-            # new_joint_angles = self.check_joint_limits(new_joint_angles)
-            # gravity_torque = np.array(self.data.qfrc_bias[6:]).flatten()
-
-            # cmd.send_motor_commands(kp, kd, self.change_q_order(new_joint_angles) * phase + (1-phase) * self.change_q_order(intial_joint_angles), self.change_q_order(dq_cmd))
             cmd.send_motor_commands(kp, kd, self.change_q_order(new_joint_angles), self.change_q_order(dq_cmd))
             dq_error = kp * (self.change_q_order(new_joint_angles) - self.data.sensordata[:12])
-            # dq_error = kp * (self.change_q_order(new_joint_angles) * phase + (1-phase) * self.change_q_order(intial_joint_angles) - self.data.sensordata[12:24])
+            
             dq_error_data.append(dq_error)
-            dq_dot= kd * (self.change_q_order(dq_cmd) - self.data.sensordata[12:24])
+            dq_dot = kd * (self.change_q_order(dq_cmd) - self.data.sensordata[12:24])
             dq_dot_data.append(dq_dot)
             ouput_data.append(dq_error + dq_dot)
 
             trail += 1
-            # print("Trail: ", trail)
-            if trail > 2000:  # Replace or remove as needed
+            if trail > 5000:
                 break
 
-        self.plot_api_value(dq_error_data, dq_dot_data, ouput_data)
-        self.plot_q_dot(q3_dot_data, "q3_dot")
-        self.plot_q_dot(q2_dot_data, "q2_dot")
-        self.plot_q_dot(q1_dot_data , "q1_dot")
-        self.plot_state_error_trajectories(xb_data, x2_data, dx_b_data, "Body")
-        self.plot_state_error_trajectories(xw_data, x3_data, dx_sw_data, "Swing")
+        ErrorPlotting.plot_api_value(dq_error_data, dq_dot_data, ouput_data)
+        ErrorPlotting.plot_q_dot(q3_dot_data, "q3_dot")
+        ErrorPlotting.plot_q_dot(q2_dot_data, "q2_dot")
+        ErrorPlotting.plot_q_dot(q1_dot_data , "q1_dot")
+        ErrorPlotting.plot_state_error_trajectories(xb_data, x2_data, dx_b_data, "Body")
+        ErrorPlotting.plot_state_error_trajectories(xw_data, x3_data, dx_sw_data, "Swing")
         # self.plot_q_error(q_desired_data, q_current_data) # all shape is (N, 12)
         plt.show()
 
@@ -329,177 +321,7 @@ class InverseKinematic(Kinematics):
                 q[3], q[4], q[5], q[0], q[1], q[2], q[9], q[10], q[11], q[6], q[7], q[8]
             ]
         )
-    def plot_state_trajectories(self, body_trajectory, swing_leg_trajectory):
-        """
-        Plot the body and swing leg trajectories.
-        """
-        plt.figure(figsize=(12, 6))
-
-        plt.subplot(3, 1, 1)
-        plt.plot(body_trajectory[:, 0], label="X")
-        plt.plot(body_trajectory[:, 1], label="Y")
-        plt.plot(body_trajectory[:, 2], label="Z")
-        plt.title("Body Trajectory")
-        plt.legend()
-
-        plt.subplot(4, 1, 2)
-        plt.plot(swing_leg_trajectory[:, 0], label="X")
-        plt.plot(swing_leg_trajectory[:, 1], label="Y")
-        plt.plot(swing_leg_trajectory[:, 2], label="Z")
-        plt.title("Front Swing Leg Trajectory")
-        plt.legend()
-
-        plt.subplot(4, 1, 3)
-        plt.plot(swing_leg_trajectory[:, 3], label="X")
-        plt.plot(swing_leg_trajectory[:, 4], label="Y")
-        plt.plot(swing_leg_trajectory[:, 5], label="Z")
-        plt.title("Rear Swing Leg Trajectory")
-        plt.legend()
-
-        plt.tight_layout()
-
-
-    def plot_q_error(self, q_desired, q_actual):
-        """
-        Plot the joint angles, desired joint angles, joint position error, and actuated joint angles.
-
-        Parameters:
-        q_desired (list): Desired joint angles, shape (N, num_joints).
-        q_actual (list): Actual joint angles, shape (N, num_joints).
-        q_error (list): Joint position errors, shape (N, num_joints).
-        q_actuated (list): Actuated joint angles, shape (N, num_joints).
-        """
-        # Plot q2_dot data for the last twelve joints
-        labels = ['FR_hip', 'FR_thigh', 'FR_calf', 'FL_hip', 'FL_thigh', 'FL_calf', 'RR_hip', 'RR_thigh', 'RR_calf', 'RL_hip', 'RL_thigh', 'RL_calf']
-        
-        plt.figure()
-        plt.subplot(4, 1, 1)
-        for joint in range(3):
-            plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
-            plt.plot([qa[joint] for qa in q_actual], label=f'q_actual[{labels[joint]}]', linestyle='-')
-        plt.title('q_config Over Time')
-        plt.xlabel('Iteration')
-        plt.ylabel('q')
-        plt.legend()
-
-        plt.subplot(4, 1, 2)
-        for joint in range(3, 6):
-            plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
-            plt.plot([qa[joint] for qa in q_actual], label=f'q_actual[{labels[joint]}]', linestyle='-')
-        plt.title('q_config Over Time')
-        plt.xlabel('Iteration')
-        plt.ylabel('q')
-        plt.legend()
-
-        plt.subplot(4, 1, 3)
-        for joint in range(6, 9):
-            plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
-            plt.plot([qa[joint] for qa in q_actual], label=f'q_actual[{labels[joint]}]', linestyle='-')
-        plt.title('q_config Over Time')
-        plt.xlabel('Iteration')
-        plt.ylabel('q')
-        plt.legend()
-
-        plt.subplot(4, 1, 4)
-        for joint in range(9, 12):
-            plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
-            plt.plot([qa[joint] for qa in q_actual], label=f'q_actual[{labels[joint]}]', linestyle='-')
-        plt.title('q_config Over Time')
-        plt.xlabel('Iteration')
-        plt.ylabel('q')
-        plt.legend()
-
-    def plot_q_dot(self, q_dot, title):
-        labels = ['FR_hip', 'FR_thigh', 'FR_calf', 'FL_hip', 'FL_thigh', 'FL_calf', 'RR_hip', 'RR_thigh', 'RR_calf', 'RL_hip', 'RL_thigh', 'RL_calf']
-        
-        plt.figure()
-        plt.subplot(4, 1, 1)
-        for joint in range(3):
-            plt.plot([qd[joint] for qd in q_dot], label=f'q_dot[{labels[joint]}]', linestyle='-.')
-        plt.title(f'{title} Over Time')
-        plt.xlabel('Iteration')
-        plt.ylabel('q_dot')
-        plt.legend()
-
-        plt.subplot(4, 1, 2)
-        for joint in range(3, 6):
-            plt.plot([qd[joint] for qd in q_dot], label=f'q_dot[{labels[joint]}]', linestyle='-.')
-        plt.title(f'{title} Over Time')
-        plt.xlabel('Iteration')
-        plt.ylabel('q_dot')
-        plt.legend()
-
-        plt.subplot(4, 1, 3)
-        for joint in range(6, 9):
-            plt.plot([qd[joint] for qd in q_dot], label=f'q_dot[{labels[joint]}]', linestyle='-.')
-        plt.title(f'{title} Over Time')
-        plt.xlabel('Iteration')
-        plt.ylabel('q_dot')
-        plt.legend()
-
-        plt.subplot(4, 1, 4)
-        for joint in range(9, 12):
-            plt.plot([qd[joint] for qd in q_dot], label=f'q_dot[{labels[joint]}]', linestyle='-.')
-        plt.title(f'{title} Over Time')
-        plt.xlabel('Iteration')
-        plt.ylabel('q_dot')
-        plt.legend()
-    def plot_api_value(self, dq_error, dq_dot, output):
-     
-        labels = ['FR_hip', 'FR_thigh', 'FR_calf', 'FL_hip', 'FL_thigh', 'FL_calf', 'RR_hip', 'RR_thigh', 'RR_calf', 'RL_hip', 'RL_thigh', 'RL_calf']
-        
-        plt.figure()
-        plt.subplot(3, 1, 1)
-        for joint in range(12):
-            plt.plot([data[joint] for data in dq_error], label=f'dq_error[{labels[joint]}]')
-        plt.legend()
-        plt.title('dq_error Over Time')
-        plt.xlabel('Iteration')
-        plt.ylabel('dq_error')
-
-        plt.subplot(3, 1, 2)
-        for joint in range(12):
-            plt.plot([data[joint] for data in dq_dot], label=f'dq_dot[{labels[joint]}]')
-        plt.title('dq_dot Over Time')
-        plt.legend()
-        plt.xlabel('Iteration')
-        plt.ylabel('dq_dot')
-        
-        plt.subplot(3, 1, 3)
-        for joint in range(12):
-            plt.plot([data[joint] for data in output], label=f'output[{labels[joint]}]')
-        plt.title('Output Over Time')
-        plt.legend()
-        plt.xlabel('Iteration')
-        plt.ylabel('Output')
-    def plot_state_error_trajectories(self, desired_state, current_state, state_error, title):
-        """
-        Plot the desired state, current state, and state error trajectories.
-
-        Parameters:
-        desired_state (list): Desired state values over time.
-        current_state (list): Current state values over time.
-        state_error (list): State error values over time.
-        title (str): Title for the plot.
-        """
-        if title == "Body":
-            labels = ['x', 'y', 'z', 'roll', 'pitch', 'yaw']    
-        else:    
-            labels = ['x_front', 'y_front', 'z_front', 'x_rear', 'y_rear', 'z_rear']
-        plt.figure(figsize=(12, 18))
-
-        for i, label in enumerate(labels):
-            plt.subplot(6, 1, i + 1)
-            plt.plot([data[i] for data in desired_state], label=f'desired_state[{label}]', linestyle='--')
-            plt.plot([data[i] for data in current_state], label=f'current_state[{label}]', linestyle='-')
-            # plt.plot([data[i] for data in state_error], label=f'state_error[{label}]', linestyle='-.')
-            plt.title(f'{title} {label.capitalize()} Over Time')
-            plt.xlabel('Iteration')
-            plt.ylabel(f'{label.capitalize()}')
-            plt.legend()
-            # plt.axis('equal',)
-
-        plt.tight_layout()
+    
 
 
 
@@ -512,5 +334,5 @@ if __name__ == "__main__":
     ik = InverseKinematic(robot_scene, cmd)
     ik.start_joint_updates()
     cmd.move_to_initial_position()
-    # ik.compute_desired_value()
+    ik.initialize()
     ik.calculate()
