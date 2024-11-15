@@ -328,10 +328,8 @@ class InverseKinematic(Kinematics):
 # Example Usage
 if __name__ == "__main__":
 
-
-    robot_scene = "../unitree_mujoco/unitree_robots/go2/scene.xml"
     cmd = send_motor_commands()
-    ik = InverseKinematic(robot_scene, cmd)
+    ik = InverseKinematic(config.ROBOT_SCENE, cmd)
     ik.start_joint_updates()
     cmd.move_to_initial_position()
     ik.initialize()
