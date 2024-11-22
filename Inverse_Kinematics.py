@@ -1,49 +1,55 @@
 import mujoco
-import mujoco.viewer
 import numpy as np
-import scipy.linalg as sp
-from Kinematics import Kinematics
+from Forward_Kinematics import ForwardKinematic
 from Send_motor_cmd import send_motor_commands
 from error_plotting import ErrorPlotting
-
 import matplotlib.pyplot as plt
+import time
+import config
 from unitree_sdk2py.core.channel import (
     ChannelPublisher, ChannelSubscriber, ChannelFactoryInitialize
 )
-import time
 
-from unitree_sdk2py.utils.crc import CRC
-from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_
-from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowCmd_
-
-import config
-
-
-
-
-class InverseKinematic(Kinematics):
+class InverseKinematic(ForwardKinematic):
     """
     Inverse Kinematic Controller for Unitree Robots using MuJoCo simulation.
     This class extends Kinematics and controls robot joints based on trajectory planning.
     """
 
-    def __init__(self, xml_path, cmd, step_size=config.SIMULATE_DT):
-        super().__init__(xml_path)
-        self.step_size = step_size
+    def __init__(self):
+        super().__init__(config.ROBOT_SCENE)
+        mujoco.mj_step(self.model, self.data)
+        self.step_size = config.SIMULATE_DT
         self.swing_time =  0.25 # 0.25 # Duration of swing phase
         self.K = int(self.swing_time / self.step_size)  # Number of steps for swing
-  
+
 
         # Robot parameters
         self.body_height = 0.25
         self.swing_height = 0.075
         self.velocity = 0.0
 
+        # Initialize the leg positions
         self.world_frame_name = "world"
         self.body_frame_name = "base_link"
         self.swing_legs = ["FL_foot", "RR_foot"]
         self.contact_legs = ["FR_foot", "RL_foot"]
+        
+        # Initialize the API
+        self.cmd = send_motor_commands()
+        
+        # intialize output for Inverse Dynamics 
+        self.qd = np.zeros(self.model.nq)   
+        self.dqd = np.zeros(self.model.nq)
+        self.ddqd = np.zeros(self.model.nq)
+        self.q = np.zeros(self.model.nq)
+        self.dq = np.zeros(self.model.nq)
 
+        # intialize the data storage for plotting
+        self.ErrorPlotting = ErrorPlotting()
+
+
+    # TODO: Get Initialize the robot state, joint angles, and leg positions.
     def initialize(self):
         """
         Initialize the robot state and joint angles.
@@ -51,7 +57,7 @@ class InverseKinematic(Kinematics):
         self.initial_joint_angles = self.joint_state_reader.joint_angles.copy()
 
         # Get initial body and leg positions
-        self.initial_body_state = self.get_body_state(self.body_frame_name).copy()
+        self.initial_body_state = self.get_body_state(self.body_frame_name).copy() # 
         self.initial_body_position = self.initial_body_state["position"]
         self.initial_body_orientation = self.initial_body_state["orientation"]
         self.initial_body_configuration = np.hstack((self.initial_body_position, self.initial_body_orientation))
@@ -70,7 +76,7 @@ class InverseKinematic(Kinematics):
         ]
         self.initial_contact_leg_positions = np.hstack(self.initial_contact_leg_positions)
 
-
+    # TODO: Check the joint limits and ensure the joint angles are within the limits.
     def check_joint_limits(self, joint_angles):
         """
         Ensure the joint angles are within the limits defined in the MuJoCo model.
@@ -79,7 +85,8 @@ class InverseKinematic(Kinematics):
             lower_limit, upper_limit = self.model.jnt_range[i, :]
             joint_angles[i] = np.clip(angle, lower_limit, upper_limit)
         return joint_angles
-
+        
+    # TODO: Get the required state for inverse kinematic calculation, including contact and swing leg positions, and body state.
     def get_required_state(self):
         """
         Get the required positions of contact and swing legs, and the body state.
@@ -93,7 +100,11 @@ class InverseKinematic(Kinematics):
         body_state_combined = np.hstack((body_position, body_orientation))
         # x1 : contact leg positions, x2 : body state, x3 : swing leg positions
 
-        return np.hstack(contact_positions), body_state_combined, np.hstack(swing_positions)
+        return {
+            "contact_leg": np.hstack(contact_positions),
+            "body": body_state_combined,
+            "swing_leg": np.hstack(swing_positions)
+        }
 
     def get_required_jacobian(self):
         """
@@ -106,7 +117,11 @@ class InverseKinematic(Kinematics):
         J2[3:, :] = body_jacobian["J_rot"]
         J3 = np.vstack([self.get_jacobian(leg)["J_pos"] for leg in self.swing_legs])
 
-        return J1, J2, J3
+        return {
+            "contact_leg": J1,
+            "body": J2,
+            "swing_leg": J3
+        }
 
     def compute_desired_body_state(self):
         """
@@ -154,51 +169,88 @@ class InverseKinematic(Kinematics):
         a3 = 2 * xf / tf**3
         return a2 * t**2 + a3 * t**3
 
+    def InverseKinematic_formulation(self,J1, J2, J3, x1, x2, x3, kb, kc, ks, x_b, x_sw, i, joint_angles):
+
+        config =  (self.initial_joint_angles - joint_angles)            # shape (12, 1)
+        q_err = kc * np.hstack((np.zeros(6), config)).reshape(-1, 1)    # shape (18, 1)
+        m = self.model.nv
+        Jc = J1
+        Nc = np.eye(m) - np.linalg.pinv(Jc, rcond=1e-5) @ Jc
+
+        Jb_c = J2 @ Nc
+        Nb_c = Nc - np.linalg.pinv(Jb_c, rcond=1e-5) @ Jb_c
+
+        Jsw_bc = J3 @ Nb_c        
+        Nsw_bc = Nb_c - np.linalg.pinv(Jsw_bc, rcond=1e-5) @ Jsw_bc
+
+        dx_b = kb * (x_b - x2).reshape(-1, 1)  # desired body state error - dotx_b
+        dx_sw = ks * (x_sw[i].T - x3).reshape(-1, 1) # desired swing leg state error - dotx_sw
+
+        q1_dot = np.linalg.pinv(Jb_c, rcond=1e-4) @ dx_b  # body q_dot
+        q2_dot = np.linalg.pinv(Jsw_bc, rcond=1e-4) @ (dx_sw - J3 @ q1_dot) # swing leg q_dot
+        q3_dot = Nsw_bc @ (q_err - q1_dot - q2_dot)
+
+        q_dot = q1_dot + q2_dot + q3_dot            # update dqd
+        # q_dot = q1_dot + q2_dot
+
+
+        dq_cmd = q_dot[6:].flatten()                # shape (12, 1)
+        new_joint_angles = joint_angles + dq_cmd    # update qd
+
+
+        self.ErrorPlotting.xb_data.append(x_b.T)
+        self.ErrorPlotting.x2_data.append(x2.flatten())
+        self.ErrorPlotting.dx_b_data.append(dx_b.flatten())
+
+        self.ErrorPlotting.xw_data.append(x_sw[i].T)
+        self.ErrorPlotting.x3_data.append(x3.flatten())
+        self.ErrorPlotting.dx_sw_data.append(dx_sw.flatten())         
+
+        self.ErrorPlotting.q3_dot_data.append(self.change_q_order(q3_dot[6:].flatten()))
+        self.ErrorPlotting.q2_dot_data.append(self.change_q_order(q2_dot[6:].flatten()))
+        self.ErrorPlotting.q1_dot_data.append(self.change_q_order(q1_dot[6:].flatten()))
+        return new_joint_angles, dq_cmd #Kinematic order 
 
     def calculate(self):
         """
         Main loop to compute and update joint angles in real-time,
         including a trot gait with proper leg phasing.
         """
-   
-
         # intial the API gain 
-        kp = 250 + 50
-        kd = 10
+        kp = 250 + 50 + 100
+        kd = 10 
         # intial the gain for the body and swing leg
         kc = 1
         kb = 1 
         ks = 1
 
-
-        m = self.model.nv
+        # Initialize the loop variables
         i = 0
         trail = 0
         running_time = 0
         
+        # # Data storage for plotting
+        # q_desired_data = []
+        # q_current_data = []
+        # q_err_data = []
+        # q3_dot_data = []
 
-        # Data storage for plotting
-        q_desired_data = []
-        q_current_data = []
-        q_err_data = []
-        q3_dot_data = []
 
+        # # Data storage for plotting
+        # xb_data = []
+        # x2_data = []
+        # dx_b_data = []
+        # q1_dot_data = []
 
-        # Data storage for plotting
-        xb_data = []
-        x2_data = []
-        dx_b_data = []
-        q1_dot_data = []
+        # xw_data = []
+        # x3_data = []
+        # dx_sw_data = []
+        # q2_dot_data = []
 
-        xw_data = []
-        x3_data = []
-        dx_sw_data = []
-        q2_dot_data = []
-
-        dq_cmd_data = []
-        dq_error_data = []
-        dq_dot_data = []
-        ouput_data = []
+        # dq_cmd_data = []
+        # dq_error_data = []
+        # dq_dot_data = []
+        # ouput_data = []
 
 
         print("Starting Trot Gait...")
@@ -212,20 +264,29 @@ class InverseKinematic(Kinematics):
             if i == 0:
                 # over one cycle
                 self.transition_legs()
-                # time.sleep(self.step_size)
-                # x_b = self.compute_desired_body_trajectory()
                 x_sw = self.compute_desired_swing_leg_trajectory()
                 # print("Transitioning legs...")
             
-            x_b = self.compute_desired_body_state()        # update the body state
-            joint_angles = self.joint_state_reader.joint_angles
-            x1, x2, x3 = self.get_required_state() 
+            x_b = self.compute_desired_body_state()             # update the body state for the next cycle
+            joint_angles = self.joint_state_reader.joint_angles # get the current joint angles
+            
+           
+            required_state = self.get_required_state()          # get the required state for IK
+            x1 = required_state["contact_leg"]
+            x2 = required_state["body"]
+            x3 = required_state["swing_leg"]
             # x1 : contact leg positions, x2 : body state, x3 : swing leg positions
-            J1, J2, J3 = self.get_required_jacobian()
+
+            required_jacobian = self.get_required_jacobian()
+            J1 = required_jacobian["contact_leg"]
+            J2 = required_jacobian["body"]
+            J3 = required_jacobian["swing_leg"]
             # J1 : contact leg Jacobian, J2 : body Jacobian, J3 : swing leg Jacobian
 
-            config =  (self.initial_joint_angles - joint_angles) # shape (12, 1)
-            q_err = kc * np.hstack((np.zeros(6), config)).reshape(-1, 1) # shape (18, 1)
+            # calculate the desired joint angles and joint velocities
+            self.qd, self.dqd = self.InverseKinematic_formulation(J1, J2, J3, x1, x2, x3, kb, kc, ks, x_b, x_sw, i, joint_angles)
+            # config =  (self.initial_joint_angles - joint_angles)            # shape (12, 1)
+            # q_err = kc * np.hstack((np.zeros(6), config)).reshape(-1, 1)    # shape (18, 1)
             # print("q_err", config)
             
             # --------------------------------
@@ -249,59 +310,73 @@ class InverseKinematic(Kinematics):
    
 
             # Case 2: three contact and 1 swing leg
-            Jc = J1
-            Nc = np.eye(m) - np.linalg.pinv(Jc, rcond=1e-5) @ Jc
+            # Jc = J1
+            # Nc = np.eye(m) - np.linalg.pinv(Jc, rcond=1e-5) @ Jc
 
-            Jb_c = J2 @ Nc
-            Nb_c = Nc - np.linalg.pinv(Jb_c, rcond=1e-5) @ Jb_c
+            # Jb_c = J2 @ Nc
+            # Nb_c = Nc - np.linalg.pinv(Jb_c, rcond=1e-5) @ Jb_c
 
-            Jsw_bc = J3 @ Nb_c        
-            Nsw_bc = Nb_c - np.linalg.pinv(Jsw_bc, rcond=1e-5) @ Jsw_bc
+            # Jsw_bc = J3 @ Nb_c        
+            # Nsw_bc = Nb_c - np.linalg.pinv(Jsw_bc, rcond=1e-5) @ Jsw_bc
 
-            dx_b = kb * (x_b - x2).reshape(-1, 1)
-            dx_sw = ks * (x_sw[i].T - x3).reshape(-1, 1)
+            # dx_b = kb * (x_b - x2).reshape(-1, 1)  # desired body state error - dotx_b
+            # dx_sw = ks * (x_sw[i].T - x3).reshape(-1, 1) # desired swing leg state error - dotx_sw
 
-            q1_dot = np.linalg.pinv(Jb_c, rcond=1e-4) @ dx_b
-            q2_dot = np.linalg.pinv(Jsw_bc, rcond=1e-4) @ (dx_sw - J3 @ q1_dot)
-            q3_dot = Nsw_bc @ (q_err - q1_dot - q2_dot)
+            # q1_dot = np.linalg.pinv(Jb_c, rcond=1e-4) @ dx_b  # body q_dot
+            # q2_dot = np.linalg.pinv(Jsw_bc, rcond=1e-4) @ (dx_sw - J3 @ q1_dot) # swing leg q_dot
+            # q3_dot = Nsw_bc @ (q_err - q1_dot - q2_dot)
 
-            q_dot = q1_dot + q2_dot + q3_dot
+            # q_dot = q1_dot + q2_dot + q3_dot            # update dqd
+            # # q_dot = q1_dot + q2_dot
 
 
-            dq_cmd = q_dot[6:].flatten()
-            new_joint_angles = joint_angles + dq_cmd  
+            # dq_cmd = q_dot[6:].flatten()                # shape (12, 1)
+            # new_joint_angles = joint_angles + dq_cmd    # update qd
 
-            xb_data.append(x_b.T)
-            x2_data.append(x2.flatten())
-            dx_b_data.append(dx_b.flatten())
+            # ErrorPlotting.xb_data.append(x_b.T)
+            # ErrorPlotting.x2_data.append(x2.flatten())
+            # ErrorPlotting.dx_b_data.append(dx_b.flatten())
 
-            xw_data.append(x_sw[i].T)
-            x3_data.append(x3.flatten())
-            dx_sw_data.append(dx_sw.flatten())         
+            # ErrorPlotting.xw_data.append(x_sw[i].T)
+            # ErrorPlotting.x3_data.append(x3.flatten())
+            # ErrorPlotting.dx_sw_data.append(dx_sw.flatten())         
 
-            q3_dot_data.append(self.change_q_order(q3_dot[6:].flatten()))
-            q2_dot_data.append(self.change_q_order(q2_dot[6:].flatten()))
-            q1_dot_data.append(self.change_q_order(q1_dot[6:].flatten()))
+            # ErrorPlotting.q3_dot_data.append(self.change_q_order(q3_dot[6:].flatten()))
+            # ErrorPlotting.q2_dot_data.append(self.change_q_order(q2_dot[6:].flatten()))
+            # ErrorPlotting.q1_dot_data.append(self.change_q_order(q1_dot[6:].flatten()))
 
-            cmd.send_motor_commands(kp, kd, self.change_q_order(new_joint_angles), self.change_q_order(dq_cmd))
-            dq_error = kp * (self.change_q_order(new_joint_angles) - self.data.sensordata[:12])
+         
+
+            # send qd and dqd to the API 
+            self.cmd.send_motor_commands(kp, kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
+            # calculate ctrl output through PD controller 
+            dq_error = kp * (self.change_q_order(self.qd) - self.data.sensordata[:12])
+            dq_dot = kd * (self.change_q_order(self.dqd) - self.data.sensordata[12:24])
             
-            dq_error_data.append(dq_error)
-            dq_dot = kd * (self.change_q_order(dq_cmd) - self.data.sensordata[12:24])
-            dq_dot_data.append(dq_dot)
-            ouput_data.append(dq_error + dq_dot)
-
+            
+            self.ErrorPlotting.dq_error_data.append(dq_error)
+            self.ErrorPlotting.dq_dot_data.append(dq_dot)
+            self.ErrorPlotting.output_data.append(dq_error + dq_dot)
+            # TODO update the output for the Inverse Dynamics
+            self.ddqd = dq_error + dq_dot # desired joint acceleration
+            self.q = self.data.sensordata[:12] # current joint angles
+            self.dq = self.data.sensordata[12:24] # current joint velocities
+            
+            # data storage for plotting
+            self.ErrorPlotting.q_desired_data.append(self.change_q_order(self.qd))
+            self.ErrorPlotting.q_current_data.append(self.change_q_order(self.dqd))
+            # update running steps 
             trail += 1
-            if trail > 5000:
+            if trail > 5000: # 5000 steps 
                 break
-
-        ErrorPlotting.plot_api_value(dq_error_data, dq_dot_data, ouput_data)
-        ErrorPlotting.plot_q_dot(q3_dot_data, "q3_dot")
-        ErrorPlotting.plot_q_dot(q2_dot_data, "q2_dot")
-        ErrorPlotting.plot_q_dot(q1_dot_data , "q1_dot")
-        ErrorPlotting.plot_state_error_trajectories(xb_data, x2_data, dx_b_data, "Body")
-        ErrorPlotting.plot_state_error_trajectories(xw_data, x3_data, dx_sw_data, "Swing")
-        # self.plot_q_error(q_desired_data, q_current_data) # all shape is (N, 12)
+        # call the error plotting class for plotting the data
+        self.ErrorPlotting.plot_api_value(self.ErrorPlotting.dq_error_data, self.ErrorPlotting.dq_dot_data, self.ErrorPlotting.output_data)
+        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q3_dot_data, "q3_dot")
+        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q2_dot_data, "q2_dot")
+        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q1_dot_data , "q1_dot")
+        self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xb_data, self.ErrorPlotting.x2_data, self.ErrorPlotting.dx_b_data, "Body")
+        self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xw_data, self.ErrorPlotting.x3_data, self.ErrorPlotting.dx_sw_data, "Swing")
+        self.ErrorPlotting.plot_q_error(self.ErrorPlotting.q_desired_data, self.ErrorPlotting.q_current_data) # all shape is (N, 12)
         plt.show()
 
 
@@ -327,10 +402,16 @@ class InverseKinematic(Kinematics):
 
 # Example Usage
 if __name__ == "__main__":
-
-    cmd = send_motor_commands()
-    ik = InverseKinematic(config.ROBOT_SCENE, cmd)
+    ChannelFactoryInitialize(1, "lo")
+    # cmd = send_motor_commands()
+    ik = InverseKinematic()
     ik.start_joint_updates()
-    cmd.move_to_initial_position()
+    ik.cmd.move_to_initial_position()
     ik.initialize()
     ik.calculate()
+    # qacc =  np.zeros(12)
+    # mujoco.mj_inverse(ik.model, ik.data)
+    # while True:
+    #     time.sleep(0.1)
+    #     print(ik.data.qfrc_bias[7:])
+    #     ik.cmd.send_motor_commands(0, 0, ik.initial_joint_angles, np.zeros(12), ik.data.qfrc_bias[7:])

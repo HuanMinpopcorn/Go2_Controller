@@ -1,6 +1,8 @@
+import os
+
 ROBOT = "go2" # Robot name, "go2", "b2", "b2w", "h1", "go2w", "g1" 
-WS = "Unitree_ws"
-ROBOT_SCENE = f"/home/hmin2/{WS}/unitree_mujoco/unitree_robots/go2/scene.xml" # Robot scene
+WS = os.path.join(os.path.expanduser("~"), "Unitree_ws")
+ROBOT_SCENE = os.path.join(WS, "unitree_mujoco", "unitree_robots", ROBOT, "scene.xml") # Robot scene
 DOMAIN_ID = 1 # Domain id
 INTERFACE = "lo" # Interface 
 

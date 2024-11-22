@@ -38,7 +38,7 @@ STAND_DOWN_JOINT_POS = np.array([
 
 class send_motor_commands():
     def __init__(self):
-        ChannelFactoryInitialize(1, "lo")
+        # ChannelFactoryInitialize(1, "lo")
     
 
         self.low_cmd_pub = ChannelPublisher(TOPIC_LOWCMD, LowCmd_) 
@@ -65,7 +65,7 @@ class send_motor_commands():
             motor.tau = 0.0
         return cmd
 
-    def send_motor_commands(self, kp , kd,  new_joint_angles, q_dot, torque=np.zeros(12)):
+    def send_motor_commands(self, kp, kd,new_joint_angles, q_dot, torque=np.zeros(12)):
         """
         Send motor commands to the robot using the publisher.
         """
@@ -119,6 +119,6 @@ class send_motor_commands():
 
 if __name__ == '__main__':
 
-
+    ChannelFactoryInitialize(1, "lo")
     cmd = send_motor_commands()
     cmd.move_to_initial_position()

@@ -3,6 +3,28 @@ import numpy as np
 from matplotlib.animation import FuncAnimation
 
 class ErrorPlotting:
+    def __init__(self):
+
+        # Data storage for plotting
+        self.q_desired_data = []
+        self.q_current_data = []
+        self.q_err_data = []
+        self.q3_dot_data = []
+        # Data storage for plotting
+        self.xb_data = []
+        self.x2_data = []
+        self.dx_b_data = []
+        self.q1_dot_data = []
+
+        self.xw_data = []
+        self.x3_data = []
+        self.dx_sw_data = []
+        self.q2_dot_data = []
+
+        self.dq_cmd_data = []
+        self.dq_error_data = []
+        self.dq_dot_data = []
+        self.output_data = []
 
     @staticmethod
     def plot_state_trajectories(body_trajectory, swing_leg_trajectory):
