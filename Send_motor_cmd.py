@@ -74,7 +74,7 @@ class send_motor_commands():
             self.cmd.motor_cmd[i].dq = q_dot[i]
             self.cmd.motor_cmd[i].kp = kp
             self.cmd.motor_cmd[i].kd = kd
-            # self.cmd.motor_cmd[i].tau = torque[i]
+            self.cmd.motor_cmd[i].tau = torque[i]
 
         self.cmd.crc = self.crc.Crc(self.cmd)
         self.low_cmd_pub.Write(self.cmd)
