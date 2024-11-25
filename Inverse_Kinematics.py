@@ -38,12 +38,8 @@ class InverseKinematic(ForwardKinematic):
         # Initialize the API
         self.cmd = send_motor_commands()
         
-        # intialize output for Inverse Dynamics 
-        self.qd = np.zeros(self.model.nq)   
-        self.dqd = np.zeros(self.model.nq)
-        self.ddqd = np.zeros(self.model.nq)
-        self.q = np.zeros(self.model.nq)
-        self.dq = np.zeros(self.model.nq)
+      
+
 
         # intialize the data storage for plotting
         self.ErrorPlotting = ErrorPlotting()
@@ -83,7 +79,14 @@ class InverseKinematic(ForwardKinematic):
             for leg_name in self.contact_legs
         ]
         self.initial_contact_leg_positions = np.hstack(self.initial_contact_leg_positions)
-    
+
+        # intialize output for Inverse Dynamics shape (12, 1)
+        self.qd = np.zeros((self.model.na, 1))   
+        self.dqd = np.zeros((self.model.na, 1))
+        self.ddqd = np.zeros((self.model.na, 1))
+        self.q = np.zeros((self.model.na, 1))
+        self.dq = np.zeros((self.model.na, 1))
+        self.tau = np.zeros((1,12))
 
     # TODO: Check the joint limits and ensure the joint angles are within the limits.
     def check_joint_limits(self, joint_angles):
@@ -199,8 +202,7 @@ class InverseKinematic(ForwardKinematic):
         q3_dot = Nsw_bc @ (q_err - q1_dot - q2_dot)
 
         q_dot = q1_dot + q2_dot + q3_dot            # update dqd
-        # q_dot = q1_dot + q2_dot
-
+        
         dq_cmd = q_dot[6:].flatten()                # shape (12, 1)
         new_joint_angles = joint_angles + dq_cmd    # update qd
 
@@ -235,6 +237,7 @@ class InverseKinematic(ForwardKinematic):
 
         x_sw = self.compute_desired_swing_leg_trajectory()
         leg_pair_in_swing = True
+        
         while True:
             i = (i + 1) % self.K  # Loop over the swing cycle duration
  
@@ -285,7 +288,8 @@ class InverseKinematic(ForwardKinematic):
             
             # send qd and dqd to the API 
             self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
-
+            # print(self.ddqd , self.tau, self.data.ctrl[:])
+            self.data.ctrl[:] = self.ddqd + self.tau
             # data storage for plotting
             self.ErrorPlotting.q_desired_data.append(self.change_q_order(self.qd))
             self.ErrorPlotting.q_current_data.append(self.change_q_order(self.q ))

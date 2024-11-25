@@ -6,6 +6,8 @@ from Inverse_Kinematics import InverseKinematic
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 import osqp
 import threading
+import mujoco
+# from mujoco_py import functions
 
 """
 This class is responsible for computing the inverse dynamics of the robot.
@@ -49,14 +51,15 @@ class InverseDynamic(InverseKinematic):
         """
         Formulate the whole-body dynamics constraints.
         """
-        M = sparse.csc_matrix(self.data.qM)  # Mass matrix
+        M = np.zeros((self.model.nv, self.model.nv))
+        mujoco.mj_fullM(self.model, M , self.data.qM)  # Mass matrix
         B = self.data.qfrc_bias  # Nonlinear terms (bias forces)
         Jc = sparse.csc_matrix(self.J1)  # Contact Jacobian
-        ddq_des = self.ddqd  # Desired joint accelerations
-        # Fc = self.data.qfrc_applied[self.contact_legs].flatten()  # Ground reaction forces
-
+        ddq_des = np.hstack((np.zeros(6), self.ddqd))  # Desired joint accelerations
+   
         # Dynamics constraints: M * ddq + B - Jc.T * Fc = tau
-        tau_cmd = np.hstack([np.zeros(6), self.data.qfrc_applied])  # Commanded torques
+        tau_cmd = np.hstack([np.zeros(6), self.tau])  # Commanded torques
+        print(self.data.qfrc_actuator)
         dynamics_matrix = sparse.hstack([M, -Jc.T])
         dynamics_rhs = tau_cmd - B  # Right-hand side of the equation
 

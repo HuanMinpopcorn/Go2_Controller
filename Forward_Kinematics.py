@@ -204,7 +204,8 @@ class ForwardKinematic:
         """
         # TODO: Print the general framework of the robot (number of coordinates, DOF, constraints, etc.)
         print("\n=== General Framework ===")
-        print("=== 	n_Q number of position coordinates==")
+        
+        print("===n_q number of position coordinates==")
         print(self.model.nq)
         print("===n_V number of DOF ==")
         print(self.model.nv)
@@ -212,10 +213,15 @@ class ForwardKinematic:
         print(self.data.nefc)
         print("===bias force==")
         print(self.data.qfrc_bias)
-        print("===constraint residual ===")
-        print(self.data.efc_pos)
-        print("===constraint force ===")
-        print(self.data.efc_force)
+        print("===self.data.qfrc_actuator==")
+        print(self.data.qfrc_actuator)
+        print("===self.data.qfrc_constraint==")
+        print(self.data.qfrc_applied)
+        print("===self.data.qfrc_==")
+        # print("===constraint residual ===")
+        # print(self.data.efc_pos)
+        # print("===constraint force ===")
+        # print(self.data.efc_force)
 
 # Example Usage
 if __name__ == "__main__":
@@ -225,9 +231,10 @@ if __name__ == "__main__":
         # ==== SDK Mode ====
         ChannelFactoryInitialize(1, "lo")
         # Initialize the Kinematics class with the XML file for the Go2 robot
-        ROBOT_SCENE = "../unitree_mujoco/unitree_robots/go2/scene.xml"
+        # ROBOT_SCENE = "../unitree_mujoco/unitree_robots/go2/scene.xml"
         # run the forward kinematics    
-        fk = ForwardKinematic(ROBOT_SCENE)
+        # fk = ForwardKinematic(ROBOT_SCENE)
+        fk = ForwardKinematic()
         fk.start_joint_updates()
         # === end ==
     fk.print_general_framework()  
