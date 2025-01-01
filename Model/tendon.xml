@@ -1,0 +1,33 @@
+<mujoco model="TendonBetweenBoxes">
+    <include file="scene.xml"/> 
+    <statistic center="0 0 0" extent="1"/>
+    <visual>
+        <global elevation="-30"/>
+    </visual>
+
+    <size memory="2M"/>
+
+    <worldbody>
+        <!-- Box 1 -->
+        <body name="box1" pos="-.75 0 0.1">
+            <geom type="box" size="0.1 0.1 0.1" mass="1.0" rgba="0 0 1 1"/>
+            <site name="box1_site" pos="0 0 0"/>
+        </body>
+
+        <!-- Box 2 -->
+        <body name="box2" pos="0.75 0 0.1">
+            <geom type="box" size="0.1 0.1 0.1" mass="1.0" rgba="1 0 0 1"/>
+            <site name="box2_site" pos="0 0 0"/>
+            <joint name="slider" type="slide" axis="1 0 0" limited="true" range="-1 1"/>
+        </body>
+    </worldbody>
+
+    <!-- Tendon connecting Box 1 and Box 2 -->
+    <tendon>
+        <spatial limited="true" range="0 0.6" width="0.005">
+            <site site="box1_site"/>
+            <site site="box2_site"/>
+        </spatial>
+    </tendon>
+    
+</mujoco>
