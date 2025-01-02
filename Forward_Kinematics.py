@@ -6,7 +6,7 @@ import time
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from read_JointState import read_JointState
 from read_TaskSpace import read_TaskSpace
-import config
+from Simulation import config
 
 class ForwardKinematic:
     def __init__(self, xml_path=config.ROBOT_SCENE):
@@ -37,7 +37,7 @@ class ForwardKinematic:
         # TODO: Set the joint angles and robot state in the MuJoCo data structure
         self.data.qpos[:3] = self.robot_state.position 
         self.data.qpos[3:7] = self.imu_data
-        self.data.qpos[7:] = self.joint_angles
+        self.data.qpos[7:19] = self.joint_angles
 
     def run_fk(self):
         """
@@ -237,5 +237,6 @@ if __name__ == "__main__":
         fk = ForwardKinematic()
         fk.start_joint_updates()
         # === end ==
-    fk.print_general_framework()  
+    fk.print_general_framework()
+    fk.print_joint_data() 
     time.sleep(5.0) 

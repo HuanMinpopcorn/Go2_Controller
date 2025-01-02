@@ -5,7 +5,7 @@ from Send_motor_cmd import send_motor_commands
 from error_plotting import ErrorPlotting
 import matplotlib.pyplot as plt
 import time
-import config
+import Simulation.config as config
 from unitree_sdk2py.core.channel import (
     ChannelPublisher, ChannelSubscriber, ChannelFactoryInitialize
 )

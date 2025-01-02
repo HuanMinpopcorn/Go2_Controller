@@ -6,12 +6,12 @@ from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_
 from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowCmd_
 
 import mujoco
-import config
 import threading
 import sys
 import numpy as np
 import time
 
+from Simulation import config
 TOPIC_LOWCMD = "rt/lowcmd"
 TOPIC_LOWSTATE = "rt/lowstate"
 TOPIC_HIGHSTATE = "rt/sportmodestate"

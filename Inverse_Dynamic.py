@@ -1,6 +1,6 @@
 import numpy as np
 from scipy import sparse
-import config 
+import Go2_Controller.Simulation.config as config 
 from Forward_Kinematics import ForwardKinematic 
 from Inverse_Kinematics import InverseKinematic 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize

@@ -242,3 +242,7 @@ Subject to:
 $$
 l \leq A x \leq u
 $$
+
+
+# Reduced order model
+# centroid mass control 

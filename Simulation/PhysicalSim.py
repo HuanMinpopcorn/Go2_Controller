@@ -8,13 +8,16 @@ from unitree_sdk2py.core.channel import ChannelSubscriber, ChannelFactoryInitial
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py_bridge import UnitreeSdk2Bridge, ElasticBand
 
-import config
+import config 
 
 
 class PhysicalSim:
     def __init__(self):
         self.locker = Lock()
-        self.mj_model = mujoco.MjModel.from_xml_path(config.ROBOT_SCENE)
+        if config.ENABLE_CABLE_SCENE:
+            self.mj_model = mujoco.MjModel.from_xml_path(config.CABLE_SCENE)
+        else:
+            self.mj_model = mujoco.MjModel.from_xml_path(config.ROBOT_SCENE)
         self.mj_data = mujoco.MjData(self.mj_model)
         self.viewer = None
         self.elastic_band = None
