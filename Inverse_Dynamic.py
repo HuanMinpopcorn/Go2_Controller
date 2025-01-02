@@ -47,7 +47,7 @@ class InverseDynamic(InverseKinematic):
         self.P = None  # Hessian matrix
         self.q = None  # Gradient vector
 
-    def whole_body_dynamics(self):
+    def whole_body_dynamics_constraint(self):
         """
         Formulate the whole-body dynamics constraints.
         """
@@ -58,12 +58,79 @@ class InverseDynamic(InverseKinematic):
         ddq_des = np.hstack((np.zeros(6), self.ddqd))  # Desired joint accelerations
    
         # Dynamics constraints: M * ddq + B - Jc.T * Fc = tau
+        # TODO: should add the gravity term into the dynamics equation
         tau_cmd = np.hstack([np.zeros(6), self.tau])  # Commanded torques
-        print(self.data.qfrc_actuator)
-        dynamics_matrix = sparse.hstack([M, -Jc.T])
-        dynamics_rhs = tau_cmd - B  # Right-hand side of the equation
+   
+        A1 = -Jc.T  # 12x6
+        A2 = np.zeros((Jc.shape[1], Jc.shape[0])) # 12x6
+        A3 = M # 12x12 or 12 x 18
+        A_matrix = sparse.hstack([A1, A2, A3])  # Left-hand side of the equation
+        dynamics_u = tau_cmd - B  # Right-hand side of the equation
+        dynamics_l = dynamics_u  # For equality constraints, l = u
+        
 
-        return dynamics_matrix, dynamics_rhs
+        return A_matrix, dynamics_l, dynamics_u
+    def kinematic_constraints(self):
+        """
+        Formulate the kinematic constraints.
+        """
+        # Placeholder for kinematic constraints
+        # ddxc = Jc * ddq + dJc * dq
+        # Jc = sparse.csc_matrix(self.J1)
+        # ddq = self.ddqd
+        # dq = self.dq
+        # A1 = 
+        # A2 =
+        # A3 =
+        # A_matrix = sparse.hstack([A1, A2, A3])
+        # l =
+        # u =
+        # return A_matrix, l, u
+        pass
+    def reaction_force_constraints(self):
+        """
+        Formulate the reaction force constraints.
+        """
+        # Placeholder for reaction force constraints
+        # Fc = self.Fc
+        # A1 = 
+        # A2 =
+        # A3 =
+        # A_matrix = sparse.hstack([A1, A2, A3])
+        # l =
+        # u =
+        # return A_matrix, l, u
+        pass
+    def acceleration_constraints(self):
+        """
+        Formulate the acceleration constraints.
+        """
+        # Placeholder for acceleration constraints
+        # ddq = self.ddqd
+        # A1 = 
+        # A2 =
+        # A3 =
+        # A_matrix = sparse.hstack([A1, A2, A3])
+        # l =
+        # u =
+        # return A_matrix, l, u
+        pass
+    def torque_constraints(self):
+        """
+        Formulate the torque constraints.
+        """
+        # Placeholder for torque constraints
+        # tau = self.tau
+        # A1 = 
+        # A2 =
+        # A3 =
+        # A_matrix = sparse.hstack([A1, A2, A3])
+        # l =
+        # u =
+        # return A_matrix, l, u
+        pass
+    
+        
 
     def setup_constraints(self):
         """
