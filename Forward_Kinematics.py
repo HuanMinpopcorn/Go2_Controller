@@ -156,6 +156,9 @@ class ForwardKinematic:
             self.robot_state = self.task_space_reader.robot_state
             self.set_joint_angles()
             self.run_fk()
+            mujoco.mj_comPos(self.model, self.data) # Map inertias and motion dofs to global frame centered at CoM.
+            mujoco.mj_crb(self.model, self.data)# Run composite rigid body inertia algorithm (CRB).
+            mujoco.mj_comVel(self.model, self.data)
             time.sleep(config.SIMULATE_DT)
 
     def start_joint_updates(self):
@@ -203,25 +206,37 @@ class ForwardKinematic:
         Prints the general framework of the robot.
         """
         # TODO: Print the general framework of the robot (number of coordinates, DOF, constraints, etc.)
-        print("\n=== General Framework ===")
+        # print("\n=== General Framework ===")
         
-        print("===n_q number of position coordinates==")
-        print(self.model.nq)
-        print("===n_V number of DOF ==")
-        print(self.model.nv)
-        print("===n_C number of active constraints==")
-        print(self.data.nefc)
-        print("===bias force==")
-        print(self.data.qfrc_bias)
-        print("===self.data.qfrc_actuator==")
-        print(self.data.qfrc_actuator)
-        print("===self.data.qfrc_constraint==")
-        print(self.data.qfrc_applied)
-        print("===self.data.qfrc_==")
+        # print("===n_q number of position coordinates==")
+        # print(self.model.nq)
+        # print("===n_V number of DOF ==")
+        # print(self.model.nv)
+        # print("===n_C number of active constraints==")
+        # print(self.data.nefc)
+        # print("===bias force==")
+        # print(self.data.qfrc_bias)
+        # print("===self.data.qfrc_actuator==")
+        # print(self.data.qfrc_actuator)
+        # print("===self.data.qfrc_constraint==")
+        # print(self.data.qfrc_applied)
+        # print("===self.data.qfrc_==")
         # print("===constraint residual ===")
         # print(self.data.efc_pos)
         # print("===constraint force ===")
         # print(self.data.efc_force)
+
+        print("Centroid Momentum of Inertia")
+        print("===center of mass nbody x 3 ===")
+        print(self.data.subtree_com)
+        print("===com-based motion axis of each dof  ===")
+        print(self.data.cdof)
+        print("===com-based body inertia and mass  ===")
+        print(self.data.cinert)
+        print(self.data.subtree_com.shape)
+        print(self.data.cdof.shape)
+        print(self.data.cinert.shape)
+      
 
 # Example Usage
 if __name__ == "__main__":
@@ -238,5 +253,5 @@ if __name__ == "__main__":
         fk.start_joint_updates()
         # === end ==
     fk.print_general_framework()
-    fk.print_joint_data() 
+    # fk.print_joint_data() 
     time.sleep(5.0) 

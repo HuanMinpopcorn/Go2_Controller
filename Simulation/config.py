@@ -13,7 +13,7 @@ JOYSTICK_DEVICE = 0 # Joystick number
 PRINT_SCENE_INFORMATION = True # Print link, joint and sensors information of robot
 ENABLE_ELASTIC_BAND = False # Virtual spring band, used for lifting h1
 
-ENABLE_CABLE_SCENE = True # Use cable scene for go2
+ENABLE_CABLE_SCENE = False # Use cable scene for go2
 CABLE_SCENE = os.path.join(WS, "unitree_mujoco", "unitree_robots", "go2", "scene_cable.xml") # Cable scene
 
 SIMULATE_DT = 0.001  # Need to be larger than the runtime of viewer.sync()
