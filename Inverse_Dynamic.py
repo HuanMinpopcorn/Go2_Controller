@@ -1,6 +1,6 @@
 import numpy as np
 from scipy import sparse
-import Go2_Controller.Simulation.config as config 
+from Simulation import config 
 from Forward_Kinematics import ForwardKinematic 
 from Inverse_Kinematics import InverseKinematic 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
@@ -51,25 +51,38 @@ class InverseDynamic(InverseKinematic):
         """
         Formulate the whole-body dynamics constraints.
         """
+        print("Starting whole body dynamics constraint...")
+        # Compute mass matrix and bias forces
         M = np.zeros((self.model.nv, self.model.nv))
-        mujoco.mj_fullM(self.model, M , self.data.qM)  # Mass matrix
-        B = self.data.qfrc_bias  # Nonlinear terms (bias forces)
-        Jc = sparse.csc_matrix(self.J1)  # Contact Jacobian
-        ddq_des = np.hstack((np.zeros(6), self.ddqd))  # Desired joint accelerations
-   
-        # Dynamics constraints: M * ddq + B - Jc.T * Fc = tau
-        # TODO: should add the gravity term into the dynamics equation
-        tau_cmd = np.hstack([np.zeros(6), self.tau])  # Commanded torques
-   
-        A1 = -Jc.T  # 12x6
-        A2 = np.zeros((Jc.shape[1], Jc.shape[0])) # 12x6
-        A3 = M # 12x12 or 12 x 18
-        A_matrix = sparse.hstack([A1, A2, A3])  # Left-hand side of the equation
-        dynamics_u = tau_cmd - B  # Right-hand side of the equation
-        dynamics_l = dynamics_u  # For equality constraints, l = u
-        
+        mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
+        B = self.data.qfrc_bias.reshape(-1,1)  # Nonlinear terms (bias forces, gravity)
 
+        # Contact Jacobian
+        self.required_jacobian = self.get_required_jacobian()
+        Jc = sparse.csc_matrix(self.required_jacobian["contact_leg"])  # Ensure J1 is correct
+        # Fc = self.data.efc_force  # External contact forces
+        # print("Debug: Jc shape", Jc.shape)
+        # print("Debug: Fc shape", Fc)
+        # print("Debug: Fc shape", Fc.shape)
+        tau_cmd = np.vstack([np.zeros((6, 1)), self.tau])  # Commanded torques
+
+        # # Optional: Validate using mj_inverse
+        # mujoco.mj_inverse(self.model, self.data)
+        # ddq_mj_inverse = self.data.qacc # real ddq from sensor data
+        ddq_cmd = np.vstack([np.zeros((6, 1)), self.ddqd]) # desired ddq from IK
+        # print("Debug: ddq (Mujoco) vs. ddq_des", ddq_mj_inverse, self.ddqd)
+
+        # Dynamics constraints
+        A1 = -Jc.T # Adjust matrix dimensions as needed
+        A2 = sparse.csc_matrix((Jc.shape[1], Jc.shape[0]))  # Placeholder
+        A3 = sparse.csc_matrix(M)  # Mass matrix in sparse format
+        A_matrix = sparse.hstack([A1, A2, A3])  # Constraint matrix
+        dynamics_u = tau_cmd - B - M @ ddq_cmd  # Equality constraint RHS
+        dynamics_l = dynamics_u  # Equality constraint bounds
+        # print(tau_cmd.shape, B.shape, M.shape, ddq_cmd.shape)
+        # print(A_matrix.shape, dynamics_l.shape, dynamics_u.shape)
         return A_matrix, dynamics_l, dynamics_u
+
     def kinematic_constraints(self):
         """
         Formulate the kinematic constraints.
@@ -281,7 +294,8 @@ if __name__ == "__main__":
     id.start_joint_updates()
     id.cmd.move_to_initial_position()
     id.initialize()
+    id.whole_body_dynamics_constraint()
     # Calculate the joint torques using inverse dynamics
-    id.ID_calculate()
+    # id.ID_calculate()
     # Close the channel factory
     # ChannelFactoryClose()

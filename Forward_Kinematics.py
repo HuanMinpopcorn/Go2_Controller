@@ -159,11 +159,13 @@ class ForwardKinematic:
             mujoco.mj_comPos(self.model, self.data) # Map inertias and motion dofs to global frame centered at CoM.
             mujoco.mj_crb(self.model, self.data)# Run composite rigid body inertia algorithm (CRB).
             mujoco.mj_comVel(self.model, self.data)
+            mujoco.mj_inverse(self.model, self.data)
             time.sleep(config.SIMULATE_DT)
 
     def start_joint_updates(self):
         """Starts a background thread to continuously update joint angles."""
         # TODO: Start a background thread for updating joint angles
+        print("Starting joint updates...")
         if not self.running:
             self.running = True
             self.update_thread = threading.Thread(target=self.update_joint_angles)

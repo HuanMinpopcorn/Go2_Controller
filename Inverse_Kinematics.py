@@ -38,9 +38,6 @@ class InverseKinematic(ForwardKinematic):
         # Initialize the API
         self.cmd = send_motor_commands()
         
-      
-
-
         # intialize the data storage for plotting
         self.ErrorPlotting = ErrorPlotting()
 
@@ -58,6 +55,7 @@ class InverseKinematic(ForwardKinematic):
         """
         Initialize the robot state and joint angles.
         """
+        print("Initializing inverse kinematic parameter...")
         self.initial_joint_angles = self.joint_state_reader.joint_angles.copy()
 
         # Get initial body and leg positions
@@ -81,12 +79,12 @@ class InverseKinematic(ForwardKinematic):
         self.initial_contact_leg_positions = np.hstack(self.initial_contact_leg_positions)
 
         # intialize output for Inverse Dynamics shape (12, 1)
-        self.qd = np.zeros((self.model.na, 1))   
-        self.dqd = np.zeros((self.model.na, 1))
-        self.ddqd = np.zeros((self.model.na, 1))
-        self.q = np.zeros((self.model.na, 1))
-        self.dq = np.zeros((self.model.na, 1))
-        self.tau = np.zeros((1,12))
+        self.qd = np.zeros((12, 1))   
+        self.dqd = np.zeros((12, 1))
+        self.ddqd = np.zeros((12, 1))
+        self.q = np.zeros((12, 1))
+        self.dq = np.zeros((12, 1))
+        self.tau = np.zeros((12,1))
 
     # TODO: Check the joint limits and ensure the joint angles are within the limits.
     def check_joint_limits(self, joint_angles):
@@ -289,7 +287,7 @@ class InverseKinematic(ForwardKinematic):
             # send qd and dqd to the API 
             self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
             # print(self.ddqd , self.tau, self.data.ctrl[:])
-            self.data.ctrl[:] = self.ddqd + self.tau
+            self.data.ctrl[:] = self.ddqd + self.tau.T
             # data storage for plotting
             self.ErrorPlotting.q_desired_data.append(self.change_q_order(self.qd))
             self.ErrorPlotting.q_current_data.append(self.change_q_order(self.q ))
