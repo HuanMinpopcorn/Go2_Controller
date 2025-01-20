@@ -89,7 +89,33 @@ class ForwardKinematic:
             print(f"Jacobian for {body_name} is singular.")
 
         return {"J_pos": J_pos, "J_rot": J_rot}
+    def get_jacobian_dot(self, body_name):
+        """
+        Computes the Jacobian matrix for a given body.
 
+        Parameters:
+            body_name (str): Name of the body to compute the Jacobian for.
+
+        Returns:
+            dict: Contains the translational and rotational Jacobians.
+        """
+        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+        Jp_next = np.zeros((3, self.model.nv))
+        Jr_next = np.zeros((3, self.model.nv))
+
+        Jp_current = self.get_jacobian(body_name)["J_pos"]
+        Jr_current = self.get_jacobian(body_name)["J_rot"]
+
+        # Step the simulation forward by a small timestep
+        mujoco.mj_step(self.model, self.data)
+
+        # Compute next Jacobian
+        mujoco.mj_jac(self.model, self.data, Jp_next, Jr_next, body_id)
+        # Compute Jacobian derivative (numerical approximation)
+        Jp_dot = (Jp_next - Jp_current) / self.model.opt.timestep
+        Jr_dot = (Jr_next - Jr_current) / self.model.opt.timestep
+
+        return {"Jp_dot": Jp_dot, "Jr_dot": Jr_dot}
     def get_foot_position_in_hip_frame(self, body_id):
         """
         Computes the position of a body in the hip frame.
