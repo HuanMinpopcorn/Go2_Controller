@@ -67,7 +67,7 @@ class InverseDynamic(InverseKinematic):
         """
         print("Formulating kinematic constraints...")
         self.required_jacobian = self.get_required_jacobian()
-        Jc = sparse.csc_matrix(self.required_jacobian["contact_leg"])
+        self.Jc = sparse.csc_matrix(self.required_jacobian["contact_leg"])
 
         ddq_cmd = np.vstack([np.zeros((6, 1)), self.ddqd])
         Jc_dot = np.vstack([self.get_jacobian_dot(leg)["J_pos"] for leg in self.contact_legs])
@@ -112,6 +112,33 @@ class InverseDynamic(InverseKinematic):
 
         print("Reaction force constraints formulated.")
         return A_matrix, l, u
+    def tau_constraints(self):
+        """
+        Formulate the torque constraints.
+        """
+        print("Formulating torque constraints...")
+        tau_max = 100  # Max torque
+        tau_min = -100  # Min torque
+
+        A1 = sparse.csc_matrix((self.ddq_dim, self.F_dim))
+        A2 = sparse.csc_matrix((self.ddq_dim, self.ddxc_dim))
+        A3 = sparse.eye(self.ddq_dim)
+        A_matrix = sparse.hstack([A1, A2, A3])
+        l = np.tile(tau_min, self.ddq_dim)
+        u = np.tile(tau_max, self.ddq_dim)
+        print("Torque constraints formulated.")
+        return A_matrix, l, u 
+    
+    def desired_q_constraints(self):
+
+        # ddqcmd = ddqd + kd
+
+        self.calculate()
+        ddxc = self.ddxc
+        dqqd_desired =
+        dqqd = self.dqqd 
+
+
 
     def setup_cost_function(self):
         """
