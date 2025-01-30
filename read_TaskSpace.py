@@ -24,6 +24,7 @@ class read_TaskSpace:
         self.robot_state = msg
         # imu has an offset from the robot's base link
         self.robot_state.position = self.robot_state.position - self.imu_pos
+    
     # the robot state include
     # position
     # velocity
@@ -47,6 +48,6 @@ if __name__ == "__main__":
         print(np.array(robot_state.position))
         print("===============================================")
         print(robot_state.foot_position_body)
-
+        print(robot_state.velocity)
     # Keep the program running to continue receiving data
    

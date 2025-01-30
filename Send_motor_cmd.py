@@ -93,28 +93,31 @@ class send_motor_commands():
         Smoothly transition to the initial standing position and maintain it.
         """
         print("Transitioning to initial position...")
-        print("Press Ctrl+ C to enter Trot Gait ...")
+        # print("Press Ctrl+ C to enter Trot Gait ...")
+        print("waiting for 1.2 seconds...")
         running_time = 0.0
-        try:
-            while True:
-                # Check if the robot is at the target body height
-                running_time += self.step_size
-                
-                # Smoothly transition to the initial position
-                phase = np.tanh(running_time / 1.2)
-                for i in range(12):
-                    self.cmd.motor_cmd[i].q = phase * target_joint_angles[i] + (
-                        1 - phase) * current_joint_angles[i]
-                    self.cmd.motor_cmd[i].kp = phase * 50.0 + (1 - phase) * 20.0  # Gradual stiffness
-                    self.cmd.motor_cmd[i].kd = 3.5
-                
-                self.cmd.crc = self.crc.Crc(self.cmd)
-                self.low_cmd_pub.Write(self.cmd)
-                time.sleep(self.step_size)
-                
-        except KeyboardInterrupt:
-            # Gracefully stop the joint update thread on exit
-            pass
+        # try: 
+        while True:
+            # Check if the robot is at the target body height
+            running_time += self.step_size
+            
+            # Smoothly transition to the initial position
+            phase = np.tanh(running_time / 1.2)
+            for i in range(12):
+                self.cmd.motor_cmd[i].q = phase * target_joint_angles[i] + (
+                    1 - phase) * current_joint_angles[i]
+                self.cmd.motor_cmd[i].kp = phase * 50.0 + (1 - phase) * 20.0  # Gradual stiffness
+                self.cmd.motor_cmd[i].kd = 3.5
+            
+            self.cmd.crc = self.crc.Crc(self.cmd)
+            self.low_cmd_pub.Write(self.cmd)
+            time.sleep(self.step_size)
+            # if running_time >= 1.2:
+            #         break
+         
+        # except :
+        #     pass
+
 
 
 if __name__ == '__main__':

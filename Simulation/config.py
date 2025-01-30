@@ -18,3 +18,7 @@ CABLE_SCENE = os.path.join(WS, "unitree_mujoco", "unitree_robots", "go2", "scene
 
 SIMULATE_DT = 0.001  # Need to be larger than the runtime of viewer.sync()
 VIEWER_DT = 0.02  # 50 fps for viewer
+
+
+urdf_path = os.path.join(WS, "unitree_ros", "robots", "go2_description", "urdf", f"{ROBOT}_description.urdf")
+# /home/hmin2/Unitree_ws/unitree_ros/robots/go2_description/urdf/go2_description.urdf

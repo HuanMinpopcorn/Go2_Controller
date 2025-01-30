@@ -30,6 +30,8 @@ class ForwardKinematic:
         self.update_thread = None  # Thread for continuous updates
         self.running = False  # Control flag for the thread
 
+        self.counter = 0
+
     def set_joint_angles(self):
         """
         Sets the joint angles in the MuJoCo qpos array.
@@ -38,6 +40,15 @@ class ForwardKinematic:
         self.data.qpos[:3] = self.robot_state.position 
         self.data.qpos[3:7] = self.imu_data
         self.data.qpos[7:19] = self.joint_angles
+
+        # print("q_pos IK")
+        # print(self.data.qpos)
+
+
+        # assert self.counter != 10 or False
+        # self.counter += 1
+        # print("\n=== Joint Angles ===")
+        # print(self.data.qpos)
 
     def run_fk(self):
         """
@@ -280,6 +291,7 @@ if __name__ == "__main__":
         fk = ForwardKinematic()
         fk.start_joint_updates()
         # === end ==
-    fk.print_general_framework()
+    # fk.print_general_framework()
+    fk.print_joint_data()
     # fk.print_joint_data() 
     time.sleep(5.0) 

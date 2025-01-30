@@ -1,5 +1,6 @@
 import mujoco
 import numpy as np
+
 from Forward_Kinematics import ForwardKinematic
 from Send_motor_cmd import send_motor_commands
 from error_plotting import ErrorPlotting
@@ -9,6 +10,9 @@ import Simulation.config as config
 from unitree_sdk2py.core.channel import (
     ChannelPublisher, ChannelSubscriber, ChannelFactoryInitialize
 )
+import multiprocessing
+from multiprocessing import Process, Pipe
+import time 
 
 class InverseKinematic(ForwardKinematic):
     """
@@ -16,7 +20,7 @@ class InverseKinematic(ForwardKinematic):
     This class extends Kinematics and controls robot joints based on trajectory planning.
     """
 
-    def __init__(self):
+    def __init__(self, conn):
         super().__init__(config.ROBOT_SCENE)
         mujoco.mj_step(self.model, self.data)
         self.step_size = config.SIMULATE_DT
@@ -49,6 +53,12 @@ class InverseKinematic(ForwardKinematic):
         self.kb = 1 
         self.ks = 1
 
+        # Initialize the threading 
+        self.conn = conn
+        self._stop_event = multiprocessing.Event()  # Add stop event
+
+
+        
 
     # TODO: Get Initialize the robot state, joint angles, and leg positions.
     def initialize(self):
@@ -203,6 +213,7 @@ class InverseKinematic(ForwardKinematic):
         
         dq_cmd = q_dot[6:].flatten()                # shape (12, 1)
         new_joint_angles = joint_angles + dq_cmd    # update qd
+   
 
     
 
@@ -236,75 +247,106 @@ class InverseKinematic(ForwardKinematic):
         x_sw = self.compute_desired_swing_leg_trajectory()
         leg_pair_in_swing = True
         
-        while True:
-            i = (i + 1) % self.K  # Loop over the swing cycle duration
- 
-            if i == 0:
-                # over one cycle
-                self.transition_legs()
-                x_sw = self.compute_desired_swing_leg_trajectory()
-                # print("Transitioning legs...")
+        while not self._stop_event.is_set():  # Use event flag instead of while True
+            try:
+                i = (i + 1) % self.K  # Loop over the swing cycle duration
+    
+                if i == 0:
+                    # over one cycle
+                    self.transition_legs()
+                    x_sw = self.compute_desired_swing_leg_trajectory()
+                    # print("Transitioning legs...")
+                
+                x_b = self.compute_desired_body_state()             # update the body state for the next cycle
+                joint_angles = self.joint_state_reader.joint_angles # get the current joint angles
+                
             
-            x_b = self.compute_desired_body_state()             # update the body state for the next cycle
-            joint_angles = self.joint_state_reader.joint_angles # get the current joint angles
-            
-           
-            self.required_state = self.get_required_state()          # get the required state for IK
-            self.x1 = self.required_state["contact_leg"]
-            self.x2 = self.required_state["body"]
-            self.x3 = self.required_state["swing_leg"]
-            # x1 : contact leg positions, x2 : body state, x3 : swing leg positions
+                self.required_state = self.get_required_state()          # get the required state for IK
+                self.x1 = self.required_state["contact_leg"]
+                self.x2 = self.required_state["body"]
+                self.x3 = self.required_state["swing_leg"]
+                # x1 : contact leg positions, x2 : body state, x3 : swing leg positions
 
-            self.required_jacobian = self.get_required_jacobian()
-            self.J1 = self.required_jacobian["contact_leg"]
-            self.J2 = self.required_jacobian["body"]
-            self.J3 = self.required_jacobian["swing_leg"]
-            # J1 : contact leg Jacobian, J2 : body Jacobian, J3 : swing leg Jacobian
+                self.required_jacobian = self.get_required_jacobian()
+                self.J1 = self.required_jacobian["contact_leg"]
+                self.J2 = self.required_jacobian["body"]
+                self.J3 = self.required_jacobian["swing_leg"]
+                # J1 : contact leg Jacobian, J2 : body Jacobian, J3 : swing leg Jacobian
 
-            # calculate the desired joint angles and joint velocities
-            self.qd, self.dqd = self.InverseKinematic_formulation(self.J1, self.J2, self.J3, 
-                                                                self.x1, self.x2, self.x3, 
-                                                                self.kb, self.kc, self.ks, 
-                                                                x_b, x_sw, 
-                                                                i, joint_angles)
-            # calculate ctrl output through PD controller 
-            dq_error = self.kp * (self.change_q_order(self.qd) - self.data.sensordata[:12])
-            dq_dot = self.kd * (self.change_q_order(self.dqd) - self.data.sensordata[12:24])
+                # calculate the desired joint angles and joint velocities
+                self.qd, self.dqd = self.InverseKinematic_formulation(self.J1, self.J2, self.J3, 
+                                                                    self.x1, self.x2, self.x3, 
+                                                                    self.kb, self.kc, self.ks, 
+                                                                    x_b, x_sw, 
+                                                                    i, joint_angles)
+                # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
+                # self.cmd.move_to_initial_position()
+                # calculate ctrl output through PD controller 
+                dq_error = self.kp * (self.change_q_order(self.qd) - self.data.sensordata[:12])
+                dq_dot = self.kd * (self.change_q_order(self.dqd) - self.data.sensordata[12:24])
+                
+                # print(self.ddqd , self.tau, self.data.ctrl[:])
+                
+                # self.ErrorPlotting.dq_error_data.append(dq_error)
+                # self.ErrorPlotting.dq_dot_data.append(dq_dot)
+                # self.ErrorPlotting.output_data.append(dq_error + dq_dot)
+                # # TODO update the output for the Inverse Dynamics
+                self.ddqd = dq_error + dq_dot # desired joint acceleration
+                # self.q = self.change_q_order(self.data.sensordata[:12]) # current joint angles in kinematic order
+                # self.dq = self.change_q_order(self.data.sensordata[12:24]) # current joint velocities in kinematic order
+                
+                #  Send `ddqd` through the pipe
+                data_to_send = {
+                    "qd": self.qd.tolist(),
+                    "dqd": self.dqd.tolist(),
+                    "ddqd": self.change_q_order(self.ddqd).tolist(),
+                    "J_contact": self.J1.tolist(),
+                    "contact_legs": self.contact_legs,
+                    "kp": self.kp, 
+                    "kd": self.kd,
+                }
+                if self.running:
+                # Send ddqd through pipe
+                    if self.conn.poll():
+                        _ = self.conn.recv()  # Clear any stale messages
+                    self.conn.send(data_to_send)  # Convert numpy array to list
+                    
+                time.sleep(0.001)  # Reduced sleep for better responsiveness
             
-            
-            self.ErrorPlotting.dq_error_data.append(dq_error)
-            self.ErrorPlotting.dq_dot_data.append(dq_dot)
-            self.ErrorPlotting.output_data.append(dq_error + dq_dot)
-            # TODO update the output for the Inverse Dynamics
-            self.ddqd = dq_error + dq_dot # desired joint acceleration
-            self.q = self.change_q_order(self.data.sensordata[:12]) # current joint angles in kinematic order
-            self.dq = self.change_q_order(self.data.sensordata[12:24]) # current joint velocities in kinematic order
-
+            except (BrokenPipeError, EOFError):
+                    print("Connection closed, exiting calculation loop")
+                    break
+    
             # TODO Feed the desired joint angles and joint velocities to the Inverse Dynamics
             # self.InverseDynamic_formulation(self.model, self.data, self.q, self.dq, self.ddqd, self.qd, self.dqd)
             # tau = InverseDynamic.compute_torque(self.model, self.data, self.q, self.dq, self.ddqd, self.qd, self.dqd)
             
             # send qd and dqd to the API 
-            self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
+            # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
             # print(self.ddqd , self.tau, self.data.ctrl[:])
-            self.data.ctrl[:] = self.ddqd + self.tau.T
+            # self.data.ctrl[:] = self.ddqd + self.tau.T
             # data storage for plotting
-            self.ErrorPlotting.q_desired_data.append(self.change_q_order(self.qd))
-            self.ErrorPlotting.q_current_data.append(self.change_q_order(self.q ))
+            # self.ErrorPlotting.q_desired_data.append(self.change_q_order(self.qd))
+            # self.ErrorPlotting.q_current_data.append(self.change_q_order(self.q ))
+            # return self.ddqd
             # update running steps 
-            trail += 1
-            if trail > 5000: # 5000 steps 
-                break
-        # call the error plotting class for plotting the data
-        self.ErrorPlotting.plot_api_value(self.ErrorPlotting.dq_error_data, self.ErrorPlotting.dq_dot_data, self.ErrorPlotting.output_data)
-        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q3_dot_data, "q3_dot")
-        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q2_dot_data, "q2_dot")
-        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q1_dot_data , "q1_dot")
-        self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xb_data, self.ErrorPlotting.x2_data, self.ErrorPlotting.dx_b_data, "Body")
-        self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xw_data, self.ErrorPlotting.x3_data, self.ErrorPlotting.dx_sw_data, "Swing")
-        self.ErrorPlotting.plot_q_error(self.ErrorPlotting.q_desired_data, self.ErrorPlotting.q_current_data) 
-        plt.show()
+        #     trail += 1
+        #     if trail > 5000: # 5000 steps 
+        #         break
+        # # call the error plotting class for plotting the data
+        # self.ErrorPlotting.plot_api_value(self.ErrorPlotting.dq_error_data, self.ErrorPlotting.dq_dot_data, self.ErrorPlotting.output_data)
+        # self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q3_dot_data, "q3_dot")
+        # self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q2_dot_data, "q2_dot")
+        # self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q1_dot_data , "q1_dot")
+        # self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xb_data, self.ErrorPlotting.x2_data, self.ErrorPlotting.dx_b_data, "Body")
+        # self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xw_data, self.ErrorPlotting.x3_data, self.ErrorPlotting.dx_sw_data, "Swing")
+        # self.ErrorPlotting.plot_q_error(self.ErrorPlotting.q_desired_data, self.ErrorPlotting.q_current_data) 
+        # plt.show()
+        self.conn.close()  # Proper cleanup
 
+    def stop(self):
+        """Signal the process to stop"""
+        self._stop_event.set()
 
     def transition_legs(self):
         """
@@ -322,14 +364,39 @@ class InverseKinematic(ForwardKinematic):
                 q[3], q[4], q[5], q[0], q[1], q[2], q[9], q[10], q[11], q[6], q[7], q[8]
             ]
         )
-    
+    def main(self):
+        """
+        Main function to run the Inverse Kinematic controller.
+        """
+        self.start_joint_updates()
+        # self.cmd.move_to_initial_position()
+        self.initialize()
+        self.calculate()
 
-# Example Usage
-if __name__ == "__main__":
+# Modified main execution pattern
+def ik_process(conn):
     ChannelFactoryInitialize(1, "lo")
-    # cmd = send_motor_commands()
-    ik = InverseKinematic()
-    ik.start_joint_updates()
-    ik.cmd.move_to_initial_position()
-    ik.initialize()
-    ik.calculate()
+    ik = InverseKinematic(conn)
+    ik.main()
+
+if __name__ == "__main__":
+    parent_conn, child_conn = Pipe()
+    ik_proc = Process(target=ik_process, args=(child_conn,))
+    
+    try:
+        ik_proc.start()
+        while True:
+            if parent_conn.poll(timeout=1):
+                data = parent_conn.recv()
+                print(f"Received qd: {data['qd']}")
+                print(f"Received dqd: {data['dqd']}")
+                print(f"Received ddqd: {data['ddqd']}")
+            else:
+                print("Waiting for data...")
+                
+    except KeyboardInterrupt:
+        print("\nTerminating process...")
+        parent_conn.send('stop')  # Send termination signal
+        ik_proc.join(timeout=5)
+        if ik_proc.is_alive():
+            ik_proc.terminate()
