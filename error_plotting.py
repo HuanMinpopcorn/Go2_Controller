@@ -26,6 +26,18 @@ class ErrorPlotting:
         self.dq_dot_data = []
         self.output_data = []
 
+        # Inverse dynamics data storage
+        self.tau_data = []
+        self.Fc_data = []
+        self.ddxc_data = []
+        self.ddq_diff_data = []
+
+        # check ddot_q data storage
+        self.ddq_ik_data = []
+        self.ddq_desired_data = []
+        self.ddq_dik_data = []
+
+        
     @staticmethod
     def plot_state_trajectories(body_trajectory, swing_leg_trajectory):
         """

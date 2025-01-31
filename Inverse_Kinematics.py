@@ -29,9 +29,9 @@ class InverseKinematic(ForwardKinematic):
 
 
         # Robot parameters
-        self.body_height = 0.25
+        self.body_height = 0.25 
         self.swing_height = 0.075
-        self.velocity = 0.0
+        self.velocity = -0.2  # Forward velocity
 
         # Initialize the leg positions
         self.world_frame_name = "world"
@@ -46,8 +46,9 @@ class InverseKinematic(ForwardKinematic):
         self.ErrorPlotting = ErrorPlotting()
 
         # intial the API gain 
-        self.kp = 250 + 50 + 100
-        self.kd = 10 
+        self.kp = 400 
+        # self.kp = 10
+        self.kd = 10
         # intial the gain for the body and swing leg
         self.kc = 1
         self.kb = 1 
@@ -67,26 +68,6 @@ class InverseKinematic(ForwardKinematic):
         """
         print("Initializing inverse kinematic parameter...")
         self.initial_joint_angles = self.joint_state_reader.joint_angles.copy()
-
-        # Get initial body and leg positions
-        self.initial_body_state = self.get_body_state(self.body_frame_name).copy() # 
-        self.initial_body_position = self.initial_body_state["position"]
-        self.initial_body_orientation = self.initial_body_state["orientation"]
-        self.initial_body_configuration = np.hstack((self.initial_body_position, self.initial_body_orientation))
-        self.desired_body_configuration = self.initial_body_configuration.copy()
-        # Initialize swing leg positions
-        self.initial_swing_leg_positions = [
-            np.copy(self.get_body_state(leg_name)["position"])
-            for leg_name in self.swing_legs
-        ]
-        self.initial_swing_leg_positions = np.hstack(self.initial_swing_leg_positions)
-
-        # Initialize the contact leg positions
-        self.initial_contact_leg_positions = [  
-            np.copy(self.get_body_state(leg_name)["position"])
-            for leg_name in self.contact_legs
-        ]
-        self.initial_contact_leg_positions = np.hstack(self.initial_contact_leg_positions)
 
         # intialize output for Inverse Dynamics shape (12, 1)
         self.qd = np.zeros((12, 1))   
@@ -142,16 +123,43 @@ class InverseKinematic(ForwardKinematic):
             "body": J2,
             "swing_leg": J3
         }
+    def get_required_jacobian_dot(self):
+        """
+        Compute Jacobians for the contact legs, body, and swing legs.
+        """
+        J1_dot = np.vstack([self.get_jacobian_dot(leg)["Jp_dot"] for leg in self.contact_legs])
+        J2_dot = np.zeros((6, self.model.nv))
+        body_jacobian = self.get_jacobian_dot(self.body_frame_name)
+        J2_dot[:3, :] = body_jacobian["Jp_dot"]
+        J2_dot[3:, :] = body_jacobian["Jr_dot"]
+        J3_dot = np.vstack([self.get_jacobian_dot(leg)["Jp_dot"] for leg in self.swing_legs])
+
+        return {
+            "contact_leg": J1_dot,
+            "body": J2_dot,
+            "swing_leg": J3_dot
+        }
 
     def compute_desired_body_state(self):
         """
         Generate trajectory for the body over the swing phase.
         """
         # print("Computing desired body state...")
+        body_moving_trajectory = []
+        initial_body_configuration = self.get_required_state()["body"].copy()
+    
         
-        self.desired_body_configuration[0] += self.velocity * self.step_size
-  
-        return self.desired_body_configuration
+        desired_body_configuration = np.copy(initial_body_configuration)
+        for i in range(self.K):
+            t = i / self.K  # Normalized time step
+            desired_body_configuration[0] = initial_body_configuration[0] +  self.cubic_spline(i, self.K, self.velocity * self.swing_time)
+            desired_body_configuration[1] = initial_body_configuration[1] 
+            desired_body_configuration[2] = initial_body_configuration[2] 
+            # desired_body_configuration[2] = self.body_height # Set desired body height
+        
+            body_moving_trajectory.append(desired_body_configuration.copy())
+        
+        return np.array(body_moving_trajectory)
 
     def compute_desired_swing_leg_trajectory(self):
         """
@@ -159,15 +167,8 @@ class InverseKinematic(ForwardKinematic):
         """
         # print("Computing desired swing leg trajectories...")
         swing_leg_trajectory = []
-
-        # Initialize swing leg positions
-        swing_leg_positions = [
-            np.copy(self.get_body_state(leg_name)["position"])
-            for leg_name in self.swing_legs
-        ]
-        swing_leg_positions = np.hstack(swing_leg_positions)
-
-        swing_leg_positions_initial = np.copy(swing_leg_positions)
+        swing_leg_positions_initial = self.get_required_state()["swing_leg"].copy()
+        swing_leg_positions = np.copy(swing_leg_positions_initial)
 
         for i in range(self.K):
             swing_leg_positions[0] = swing_leg_positions_initial[0] + self.cubic_spline(i, self.K, self.velocity * self.swing_time)
@@ -180,7 +181,40 @@ class InverseKinematic(ForwardKinematic):
             swing_leg_trajectory.append(swing_leg_positions.copy())
 
         return np.array(swing_leg_trajectory)
+        
+    def compute_desired_body_state_velocity_trajectory(self):
+        body_velocity_trajectory = []
+        body_jacobian_dot = np.vstack((self.get_jacobian_dot(self.body_frame_name)["Jp_dot"], self.get_jacobian_dot(self.body_frame_name)["Jr_dot"]))
+        intial_body_velocity = body_jacobian_dot @  (self.data.qvel.copy().reshape(-1, 1))
+        desired_body_velocity = np.copy(intial_body_velocity)
+        for i in range(self.K):
+            desired_body_velocity[0] = intial_body_velocity[0] + self.diff_cubic_spline(i, self.K, self.velocity * self.swing_time)
+            desired_body_velocity[1] = intial_body_velocity[1]
+            desired_body_velocity[2] = intial_body_velocity[2]
+            body_velocity_trajectory.append(desired_body_velocity.copy())
+        # print("body velocity", desired_body_velocity.shape)
+        return np.array(body_velocity_trajectory)
+        
 
+    def compute_desired_swing_leg_velocity_trajectory(self):
+        swing_leg_velocity_trajectory = []
+        swing_leg_velocity_initial = np.zeros((len(self.swing_legs) * 3, 1))
+        swing_leg_velocity = np.copy(swing_leg_velocity_initial)
+        swing_leg_velocity_initial = np.vstack([self.get_jacobian(leg)["J_pos"] @ self.data.qvel.copy().reshape(-1, 1) for leg in self.swing_legs])
+        # print("swing_leg_velocity_initial", swing_leg_velocity_initial.shape)
+        
+        for i in range(self.K):
+            swing_leg_velocity[0] = swing_leg_velocity_initial[0] + self.diff_cubic_spline(i, self.K, self.velocity * self.swing_time)
+            swing_leg_velocity[1] = swing_leg_velocity_initial[1]
+            swing_leg_velocity[2] = swing_leg_velocity_initial[2] + self.swing_height * np.pi / self.K * np.cos(np.pi * i / self.K)
+            swing_leg_velocity[3] = swing_leg_velocity_initial[3] + self.diff_cubic_spline(i, self.K, self.velocity * self.swing_time)
+            swing_leg_velocity[4] = swing_leg_velocity_initial[4]
+            swing_leg_velocity[5] = swing_leg_velocity_initial[5] + self.swing_height * np.pi / self.K * np.cos(np.pi * i / self.K)
+            
+            swing_leg_velocity_trajectory.append(swing_leg_velocity.copy())
+        # print("swing_leg_velocity_trajectory", swing_leg_velocity.shape)
+        return np.array(swing_leg_velocity_trajectory)
+    
     def cubic_spline(self, t, tf, xf):
         """
         Generate cubic spline trajectory.
@@ -188,6 +222,13 @@ class InverseKinematic(ForwardKinematic):
         a2 = -3 * xf / tf**2
         a3 = 2 * xf / tf**3
         return a2 * t**2 + a3 * t**3
+    def diff_cubic_spline(self, t, tf, xf):
+        """
+        Generate cubic spline trajectory.
+        """
+        a2 = -3 * xf / tf**2
+        a3 = 2 * xf / tf**3
+        return 2 * a2 * t + 3 * a3 * t**2
 
     def InverseKinematic_formulation(self,J1, J2, J3, x1, x2, x3, kb, kc, ks, x_b, x_sw, i, joint_angles):
 
@@ -203,32 +244,63 @@ class InverseKinematic(ForwardKinematic):
         Jsw_bc = J3 @ Nb_c        
         Nsw_bc = Nb_c - np.linalg.pinv(Jsw_bc, rcond=1e-5) @ Jsw_bc
 
-        self.dx_b = kb * (x_b - x2).reshape(-1, 1)  # desired body state error - dotx_b
-        self.dx_sw = ks * (x_sw[i].T - x3).reshape(-1, 1) # desired swing leg state error - dotx_sw
-        q1_dot = np.linalg.pinv(Jb_c, rcond=1e-4) @ self.dx_b  # body q_dot
-        q2_dot = np.linalg.pinv(Jsw_bc, rcond=1e-4) @ (self.dx_sw - J3 @ q1_dot) # swing leg q_dot
+        dx_b = kb * (x_b[i].T - x2).reshape(-1, 1)  # desired body state error - dotx_b
+        dx_sw = ks * (x_sw[i].T - x3).reshape(-1, 1) # desired swing leg state error - dotx_sw
+        q1_dot = np.linalg.pinv(Jb_c, rcond=1e-4) @ dx_b  # body q_dot
+        q2_dot = np.linalg.pinv(Jsw_bc, rcond=1e-4) @ (dx_sw - J3 @ q1_dot) # swing leg q_dot
         q3_dot = Nsw_bc @ (q_err - q1_dot - q2_dot)
 
         q_dot = q1_dot + q2_dot + q3_dot            # update dqd
+        # q_dot = q1_dot + q2_dot 
         
         dq_cmd = q_dot[6:].flatten()                # shape (12, 1)
         new_joint_angles = joint_angles + dq_cmd    # update qd
    
 
-    
-
-        self.ErrorPlotting.xb_data.append(x_b.T)
+        self.ErrorPlotting.xb_data.append(x_b[i].T)
         self.ErrorPlotting.x2_data.append(x2.flatten())
-        self.ErrorPlotting.dx_b_data.append(self.dx_b.flatten())
+        self.ErrorPlotting.dx_b_data.append(dx_b.flatten())
 
         self.ErrorPlotting.xw_data.append(x_sw[i].T)
         self.ErrorPlotting.x3_data.append(x3.flatten())
-        self.ErrorPlotting.dx_sw_data.append(self.dx_sw.flatten())         
+        self.ErrorPlotting.dx_sw_data.append(dx_sw.flatten())         
 
         self.ErrorPlotting.q3_dot_data.append(self.change_q_order(q3_dot[6:].flatten()))
         self.ErrorPlotting.q2_dot_data.append(self.change_q_order(q2_dot[6:].flatten()))
         self.ErrorPlotting.q1_dot_data.append(self.change_q_order(q1_dot[6:].flatten()))
         return new_joint_angles, dq_cmd #Kinematic order 
+    
+    def desired_joint_acceleration(self, J1, J2, J3, J1_dot, J2_dot, J3_dot, x1, x2, x3, i, x_b_dot, x_sw_dot):
+        """
+        Compute desired joint acceleration using KinWBC null-space projections
+        Returns:
+            ddqd: Desired joint acceleration (12x1 vector)
+        """
+        # Initialize variables
+        ddqd = np.zeros((self.model.nv, 1))  # nv = number of degrees of freedom
+      
+
+        Jc = J1
+        Nc = np.eye(self.model.nv) - np.linalg.pinv(Jc, rcond=1e-5) @ Jc
+
+        Jb_c = J2 @ Nc
+        Nb_c = Nc - np.linalg.pinv(Jb_c, rcond=1e-5) @ Jb_c
+
+        Jsw_bc = J3 @ Nb_c        
+        Nsw_bc = Nb_c - np.linalg.pinv(Jsw_bc, rcond=1e-5) @ Jsw_bc
+
+        # print("Body velocity shape:", x_b_dot[i].shape, "Swing leg velocity shape:", x_sw_dot[i].shape)
+        # print(self.data.qvel.copy().reshape(-1, 1).shape)
+        # Compute desired joint acceleration
+        q1_ddot = np.linalg.pinv(Jb_c, rcond=1e-4) @ (x_b_dot[i] - J2_dot @ self.data.qvel.copy().reshape(-1, 1) )  # Body joint acceleration
+        q2_ddot = np.linalg.pinv(Jsw_bc, rcond=1e-4) @ (x_sw_dot[i] - J3_dot @ self.data.qvel.copy().reshape(-1, 1))  # Swing leg joint acceleration
+        # q3_ddot = Nsw_bc @ (q1_ddot + q2_ddot)  # Joint acceleration for the remaining joints
+        print("q1_ddot", q1_ddot.shape)
+        print("q2_ddot", q2_ddot.shape)
+        ddqd_desired = q1_ddot + q2_ddot 
+            
+            
+        return ddqd_desired[6:]  # Return only actuated joints (12x1)
 
     def calculate(self):
         """
@@ -245,7 +317,10 @@ class InverseKinematic(ForwardKinematic):
         print("Starting Trot Gait...")
 
         x_sw = self.compute_desired_swing_leg_trajectory()
-        leg_pair_in_swing = True
+        x_b = self.compute_desired_body_state() # update the body state for the next cycle
+        x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
+        x_b_dot = self.compute_desired_body_state_velocity_trajectory()
+
         
         while not self._stop_event.is_set():  # Use event flag instead of while True
             try:
@@ -254,10 +329,13 @@ class InverseKinematic(ForwardKinematic):
                 if i == 0:
                     # over one cycle
                     self.transition_legs()
-                    x_sw = self.compute_desired_swing_leg_trajectory()
+                    x_sw = self.compute_desired_swing_leg_trajectory() 
+                    x_b = self.compute_desired_body_state()  # update the body state for the next cycle
+                    x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
+                    x_b_dot = self.compute_desired_body_state_velocity_trajectory()
                     # print("Transitioning legs...")
                 
-                x_b = self.compute_desired_body_state()             # update the body state for the next cycle
+                           
                 joint_angles = self.joint_state_reader.joint_angles # get the current joint angles
                 
             
@@ -267,11 +345,15 @@ class InverseKinematic(ForwardKinematic):
                 self.x3 = self.required_state["swing_leg"]
                 # x1 : contact leg positions, x2 : body state, x3 : swing leg positions
 
-                self.required_jacobian = self.get_required_jacobian()
-                self.J1 = self.required_jacobian["contact_leg"]
-                self.J2 = self.required_jacobian["body"]
-                self.J3 = self.required_jacobian["swing_leg"]
+                
+                self.J1 = self.get_required_jacobian()["contact_leg"]
+                self.J2 = self.get_required_jacobian()["body"]
+                self.J3 = self.get_required_jacobian()["swing_leg"]
                 # J1 : contact leg Jacobian, J2 : body Jacobian, J3 : swing leg Jacobian
+                self.J1_dot = self.get_required_jacobian_dot()["contact_leg"]
+                self.J2_dot = self.get_required_jacobian_dot()["body"]
+                self.J3_dot = self.get_required_jacobian_dot()["swing_leg"]
+                # J1_dot : contact leg Jacobian, J2_dot : body Jacobian, J3_dot : swing leg Jacobian
 
                 # calculate the desired joint angles and joint velocities
                 self.qd, self.dqd = self.InverseKinematic_formulation(self.J1, self.J2, self.J3, 
@@ -279,7 +361,20 @@ class InverseKinematic(ForwardKinematic):
                                                                     self.kb, self.kc, self.ks, 
                                                                     x_b, x_sw, 
                                                                     i, joint_angles)
-                # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
+                
+                self.ddq_desired = self.desired_joint_acceleration(self.J1, self.J2, self.J3,
+                                                                    self.J1_dot, self.J2_dot, self.J3_dot,
+                                                                    self.x1, self.x2, self.x3,
+                                                                    i, x_b_dot, x_sw_dot)
+
+                
+                # print("Shape of J1:", self.J1.shape)
+                # print("Shape of ddqd:", np.vstack((np.zeros((6, 1)), self.ddq_desired )).shape)
+                # print("Shape of J1_dot:", self.J1_dot.shape)
+                # print("Shape of qvel:", self.data.qvel.copy().reshape(-1, 1).shape)
+                ddxc = self.J1 @ np.vstack((np.zeros((6, 1)), self.ddq_desired)) + self.J1_dot @ self.data.qvel.copy().reshape(-1, 1)
+                # print("ddxc", ddxc.shape)
+                self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd),self.change_q_order(self.ddq_desired))
                 # self.cmd.move_to_initial_position()
                 # calculate ctrl output through PD controller 
                 dq_error = self.kp * (self.change_q_order(self.qd) - self.data.sensordata[:12])
@@ -287,15 +382,17 @@ class InverseKinematic(ForwardKinematic):
                 
                 # print(self.ddqd , self.tau, self.data.ctrl[:])
                 
-                # self.ErrorPlotting.dq_error_data.append(dq_error)
-                # self.ErrorPlotting.dq_dot_data.append(dq_dot)
-                # self.ErrorPlotting.output_data.append(dq_error + dq_dot)
+                self.ErrorPlotting.dq_error_data.append(dq_error)
+                
+                self.ErrorPlotting.dq_dot_data.append(dq_dot)
+                self.ErrorPlotting.output_data.append(dq_error + dq_dot)
+                self.ErrorPlotting.ddq_desired_data.append(self.ddq_desired)
+                
                 # # TODO update the output for the Inverse Dynamics
                 self.ddqd = dq_error + dq_dot # desired joint acceleration
-                # self.q = self.change_q_order(self.data.sensordata[:12]) # current joint angles in kinematic order
-                # self.dq = self.change_q_order(self.data.sensordata[12:24]) # current joint velocities in kinematic order
-                
+      
                 #  Send `ddqd` through the pipe
+                # print("Sending data through pipe...")
                 data_to_send = {
                     "qd": self.qd.tolist(),
                     "dqd": self.dqd.tolist(),
@@ -311,37 +408,35 @@ class InverseKinematic(ForwardKinematic):
                         _ = self.conn.recv()  # Clear any stale messages
                     self.conn.send(data_to_send)  # Convert numpy array to list
                     
-                time.sleep(0.001)  # Reduced sleep for better responsiveness
+                time.sleep(self.step_size)  # Reduced sleep for better responsiveness
             
             except (BrokenPipeError, EOFError):
                     print("Connection closed, exiting calculation loop")
                     break
     
-            # TODO Feed the desired joint angles and joint velocities to the Inverse Dynamics
-            # self.InverseDynamic_formulation(self.model, self.data, self.q, self.dq, self.ddqd, self.qd, self.dqd)
-            # tau = InverseDynamic.compute_torque(self.model, self.data, self.q, self.dq, self.ddqd, self.qd, self.dqd)
-            
-            # send qd and dqd to the API 
-            # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
-            # print(self.ddqd , self.tau, self.data.ctrl[:])
-            # self.data.ctrl[:] = self.ddqd + self.tau.T
+        
             # data storage for plotting
-            # self.ErrorPlotting.q_desired_data.append(self.change_q_order(self.qd))
-            # self.ErrorPlotting.q_current_data.append(self.change_q_order(self.q ))
-            # return self.ddqd
-            # update running steps 
-        #     trail += 1
-        #     if trail > 5000: # 5000 steps 
-        #         break
-        # # call the error plotting class for plotting the data
+            self.ErrorPlotting.q_desired_data.append(self.change_q_order(self.qd))
+            self.ErrorPlotting.q_current_data.append(self.change_q_order(self.q ))
+            
+            trail += 1
+            if trail > 2000: # 5000 steps 
+                break
+        # call the error plotting class for plotting the data
         # self.ErrorPlotting.plot_api_value(self.ErrorPlotting.dq_error_data, self.ErrorPlotting.dq_dot_data, self.ErrorPlotting.output_data)
-        # self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q3_dot_data, "q3_dot")
-        # self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q2_dot_data, "q2_dot")
-        # self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q1_dot_data , "q1_dot")
-        # self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xb_data, self.ErrorPlotting.x2_data, self.ErrorPlotting.dx_b_data, "Body")
-        # self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xw_data, self.ErrorPlotting.x3_data, self.ErrorPlotting.dx_sw_data, "Swing")
-        # self.ErrorPlotting.plot_q_error(self.ErrorPlotting.q_desired_data, self.ErrorPlotting.q_current_data) 
-        # plt.show()
+        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.ddq_desired_data, "ddq_desired")
+        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.output_data, "output_data")
+        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.dq_dot_data, "dq_dot_data")
+        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.dq_error_data, "dq_error_data")
+        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q3_dot_data, "q3_dot")
+        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q2_dot_data, "q2_dot")
+        self.ErrorPlotting.plot_q_dot(self.ErrorPlotting.q1_dot_data , "q1_dot")
+        self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xb_data, self.ErrorPlotting.x2_data, self.ErrorPlotting.dx_b_data, "Body")
+        self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xw_data, self.ErrorPlotting.x3_data, self.ErrorPlotting.dx_sw_data, "Swing")
+        self.ErrorPlotting.plot_q_error(self.ErrorPlotting.q_desired_data, self.ErrorPlotting.q_current_data) 
+        plt.show()
+        time.sleep(50)
+        plt.close()
         self.conn.close()  # Proper cleanup
 
     def stop(self):
@@ -369,7 +464,7 @@ class InverseKinematic(ForwardKinematic):
         Main function to run the Inverse Kinematic controller.
         """
         self.start_joint_updates()
-        # self.cmd.move_to_initial_position()
+        self.cmd.move_to_initial_position()
         self.initialize()
         self.calculate()
 
@@ -388,9 +483,9 @@ if __name__ == "__main__":
         while True:
             if parent_conn.poll(timeout=1):
                 data = parent_conn.recv()
-                print(f"Received qd: {data['qd']}")
-                print(f"Received dqd: {data['dqd']}")
-                print(f"Received ddqd: {data['ddqd']}")
+                # print(f"Received qd: {data['qd']}")
+                # print(f"Received dqd: {data['dqd']}")
+                # print(f"Received ddqd: {data['ddqd']}")
             else:
                 print("Waiting for data...")
                 

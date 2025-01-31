@@ -22,11 +22,9 @@ class ForwardKinematic:
 
         # TODO: Initialize joint state and task space readers
         self.joint_state_reader = read_JointState()
-        self.joint_angles = self.joint_state_reader.joint_angles
-
         self.task_space_reader = read_TaskSpace()
-        self.robot_state = self.task_space_reader.robot_state
-        self.imu_data = self.joint_state_reader.imu_data
+
+   
         self.update_thread = None  # Thread for continuous updates
         self.running = False  # Control flag for the thread
 
@@ -37,18 +35,13 @@ class ForwardKinematic:
         Sets the joint angles in the MuJoCo qpos array.
         """
         # TODO: Set the joint angles and robot state in the MuJoCo data structure
-        self.data.qpos[:3] = self.robot_state.position 
+        self.data.qpos[:3] = self.robot_state
         self.data.qpos[3:7] = self.imu_data
         self.data.qpos[7:19] = self.joint_angles
 
-        # print("q_pos IK")
-        # print(self.data.qpos)
-
-
-        # assert self.counter != 10 or False
-        # self.counter += 1
-        # print("\n=== Joint Angles ===")
-        # print(self.data.qpos)
+        self.data.qvel[:3] = self.robot_velocity
+        self.data.qvel[3:6] = self.imu_velocity
+        self.data.qvel[6:19] = self.joint_velocity
 
     def run_fk(self):
         """
@@ -75,6 +68,7 @@ class ForwardKinematic:
             position = np.copy(self.data.xpos[body_id])
         else:
             position = np.copy(self.get_foot_position_in_hip_frame(body_id))
+        # position = np.copy(self.data.xpos[body_id])
         orientation_quat = np.copy(self.data.xquat[body_id])
         orientation = self.convert_quat_to_euler(orientation_quat)
 
@@ -111,20 +105,10 @@ class ForwardKinematic:
             dict: Contains the translational and rotational Jacobians.
         """
         body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
-        Jp_next = np.zeros((3, self.model.nv))
-        Jr_next = np.zeros((3, self.model.nv))
+        Jp_dot = np.zeros((3, self.model.nv))   
+        Jr_dot = np.zeros((3, self.model.nv))
 
-        Jp_current = self.get_jacobian(body_name)["J_pos"]
-        Jr_current = self.get_jacobian(body_name)["J_rot"]
-
-        # Step the simulation forward by a small timestep
-        mujoco.mj_step(self.model, self.data)
-
-        # Compute next Jacobian
-        mujoco.mj_jac(self.model, self.data, Jp_next, Jr_next, body_id)
-        # Compute Jacobian derivative (numerical approximation)
-        Jp_dot = (Jp_next - Jp_current) / self.model.opt.timestep
-        Jr_dot = (Jr_next - Jr_current) / self.model.opt.timestep
+        mujoco.mj_jacDot(self.model, self.data, Jp_dot, Jr_dot, np.zeros(3),body_id)
 
         return {"Jp_dot": Jp_dot, "Jr_dot": Jr_dot}
     def get_foot_position_in_hip_frame(self, body_id):
@@ -188,9 +172,17 @@ class ForwardKinematic:
         """
         # TODO: Continuously update joint angles and run forward kinematics
         while self.running:
+            self.robot_state = self.task_space_reader.robot_state.position
+            self.robot_velocity = self.task_space_reader.robot_state.velocity
+        
+
             self.joint_angles = self.joint_state_reader.joint_angles
+            self.joint_velocity = self.joint_state_reader.joint_velocity
+            self.joint_toque = self.joint_state_reader.joint_tau
+            
             self.imu_data = self.joint_state_reader.imu_data
-            self.robot_state = self.task_space_reader.robot_state
+            self.imu_velocity = self.joint_state_reader.imu_gyroscope
+            self.imu_acc = self.joint_state_reader.imu_accelerometer
             self.set_joint_angles()
             self.run_fk()
             mujoco.mj_comPos(self.model, self.data) # Map inertias and motion dofs to global frame centered at CoM.
@@ -236,9 +228,12 @@ class ForwardKinematic:
         # TODO: Print the kinematic data (position, orientation, Jacobian) of the specified body
         state = self.get_body_state(body_name)
         jacobian = self.get_jacobian(body_name)
+        jacobian_dot = self.get_jacobian_dot(body_name)
         np.set_printoptions(precision=5, suppress=True)
         print(f"\n{body_name} Position: {state['position']}")
         print(f"{body_name} Orientation:\n{state['orientation']}")
+        print(f"{body_name} Jacobian:\n{jacobian['J_pos']}")
+        print(f"{body_name} Jacobian Dot:\n{jacobian_dot['Jp_dot']}")
 
     def print_general_framework(self):
         """
@@ -265,16 +260,16 @@ class ForwardKinematic:
         # print("===constraint force ===")
         # print(self.data.efc_force)
 
-        print("Centroid Momentum of Inertia")
-        print("===center of mass nbody x 3 ===")
-        print(self.data.subtree_com)
-        print("===com-based motion axis of each dof  ===")
-        print(self.data.cdof)
-        print("===com-based body inertia and mass  ===")
-        print(self.data.cinert)
-        print(self.data.subtree_com.shape)
-        print(self.data.cdof.shape)
-        print(self.data.cinert.shape)
+        # print("Centroid Momentum of Inertia")
+        # print("===center of mass nbody x 3 ===")
+        # print(self.data.subtree_com)
+        # print("===com-based motion axis of each dof  ===")
+        # print(self.data.cdof)
+        # print("===com-based body inertia and mass  ===")
+        # print(self.data.cinert)
+        # print(self.data.subtree_com.shape)
+        # print(self.data.cdof.shape)
+        # print(self.data.cinert.shape)
       
 
 # Example Usage
@@ -293,5 +288,6 @@ if __name__ == "__main__":
         # === end ==
     # fk.print_general_framework()
     fk.print_joint_data()
+    fk.print_kinematics("FR_foot")
     # fk.print_joint_data() 
     time.sleep(5.0) 

@@ -73,16 +73,18 @@ class WholeBodyController:
         self.ddq_dim = self.model.nv  # Joint accelerations
         
         # intialize the input tau_cmd and ddq
-        self.ddq_ik = np.zeros((self.model.nv, 1))
-        self.dq_ik = np.zeros((self.model.nv, 1))
-        self.q_ik = np.zeros((self.model.nv, 1))
+        self.ddq_ik = np.zeros((self.model.nv - 6, 1))
+        self.dq_ik = np.zeros((self.model.nv - 6, 1))
+        self.q_ik = np.zeros((self.model.nv - 6, 1))
         self.tau = np.zeros((self.model.nv - 6, 1))
+
+        self.ddq_desired = np.zeros((self.model.nv, 1))
 
         self.kp = 250 + 50 + 100
         self.kd = 10 
 
         # Weight matrices for cost function
-        self.WF = sparse.csc_matrix(np.eye(self.F_dim) * 200)  # Weight for contact forces
+        self.WF = sparse.csc_matrix(np.eye(self.F_dim) * 1000)  # Weight for contact forces
         self.Wc = sparse.csc_matrix(np.eye(self.ddxc_dim) * 1000)  # Weight for contact accelerations
         self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim)* 100)  # Weight for joint accelerations
 
@@ -108,7 +110,7 @@ class WholeBodyController:
         """
         Start a thread to update joint angles.
         """
-        print("ID Starting joint updates...")
+        # print("ID Starting joint updates...")
         if not self.running:
             self.running = True
             self.thread = threading.Thread(target=self.update_joint_angles)
@@ -182,7 +184,7 @@ class WholeBodyController:
         q = self.qpos  # Shape: (nq,)
         v = self.qvel  # Shape: (nv,)
         # Compute forward kinematics derivatives (required for velocity terms)
-        pin.computeForwardKinematicsDerivatives(self.model, self.data, q, v, np.zeros(self.model.nv))
+        pin.computeJointJacobiansTimeVariation(self.model,self.data,q,v)
         for leg in self.contact_legs:
             
             frame_id = self.model.getFrameId(leg)
@@ -202,14 +204,14 @@ class WholeBodyController:
     
     def update_ddq_desired(self):
         """
-        Compute the desired joint accelerations.
+        Compute the desired joint accelerations. through projection method 
         """
-        self.ddq_desired = np.zeros((self.model.nv, 1))
+        
         inv_Jc = np.linalg.pinv(self.J_contact, rcond=1e-5)
         xc_desired = np.zeros((3 * self.num_contacts, 1))
         # print(f"J_contact: {self.J_contact.shape}, dJ_contact: {self.dJ_contact.shape}, dq_ik: {self.qvel.shape}")
         self.ddq_desired = inv_Jc @ (xc_desired - self.dJ_contact @ self.qvel.reshape(-1, 1))
-        # print(f"ddq_desired: {self.ddq_desired.shape}")
+        print(f"ddq_desired: {self.ddq_desired}")
    
     def compute_dynamics_constraints(self):
         """
@@ -233,10 +235,10 @@ class WholeBodyController:
         tau_cmd = self.S.T @ self.tau  # Commanded torques
         # Receive ddq_cmd from InverseKinematics
         # calculate the desired joint accelerations through the j(q) derivative
-        self.ddq_dik = self.ddq_ik + self.ddq_desired
+        self.ddq_dik = np.vstack((np.zeros((6, 1)), self.ddq_ik.reshape(-1,1))) + self.ddq_desired
         
     
-        A1 = -self.J_contact.T  # Transposed contact Jacobian
+        A1 = sparse.csc_matrix(-self.J_contact.T)  # Transposed contact Jacobian
         A2 = sparse.csc_matrix((self.J_contact.shape[1], self.J_contact.shape[0]))  # Placeholder
         A3 = sparse.csc_matrix(self.M)  # Mass matrix in sparse format
         A_matrix = sparse.hstack([A1, A2, A3])  # Constraint matrix
@@ -251,12 +253,13 @@ class WholeBodyController:
         """
         if self.conn.poll(timeout=1):
             ik_data = self.conn.recv()
-            self.ddq_ik = np.vstack((np.zeros((6, 1)), np.array(ik_data["ddqd"]).reshape(-1, 1)))
-            self.dq_ik = np.vstack((np.zeros((6, 1)), np.array(ik_data["dqd"]).reshape(-1, 1)))
+            self.ddq_ik = np.array(ik_data["ddqd"])
+            self.dq_ik =  np.array(ik_data["dqd"])
             self.q_ik = np.array(ik_data["qd"])
             self.J_contact_ik = np.array(ik_data["J_contact"])
             self.kp = np.array(ik_data["kp"])
             self.kd = np.array(ik_data["kd"])
+            # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik))
             # self.contact_legs = ik_data["contact_legs"]
 
             # print(f"Received qd: {ik_data['qd']}")
@@ -264,6 +267,7 @@ class WholeBodyController:
             # print(f"Received ddqd: {ik_data['ddqd']}")
         else:
             print("Waiting for data...")
+            self.receive_ddq_ik()
         
     def compute_reaction_force_constraints(self):
         """
@@ -281,7 +285,7 @@ class WholeBodyController:
         ])
         S = sparse.block_diag([S_single] * self.num_contacts)
         F_r_max = (np.ones(S.shape[0]) * self.F_z_max).reshape(-1, 1)
-        A1 = S
+        A1 = sparse.csc_matrix(S)
         A2 = sparse.csc_matrix((S.shape[0], self.ddxc_dim))
         A3 = sparse.csc_matrix((S.shape[0], self.ddq_dim))
         A_react = sparse.hstack([A1, A2, A3],format='csc')
@@ -294,7 +298,7 @@ class WholeBodyController:
         ])
         Fz = sparse.block_diag([Fz_single] * self.num_contacts)
 
-        A1 = Fz
+        A1 = sparse.csc_matrix(Fz)
         A2 = sparse.csc_matrix((Fz.shape[0], self.ddxc_dim))
         A3 = sparse.csc_matrix((Fz.shape[0], self.ddq_dim))
         A_matrix = sparse.hstack([A1, A2, A3],format='csc')
@@ -332,8 +336,8 @@ class WholeBodyController:
         # print(f"l_dyn: {l_dyn.shape}, l_react: {l_react.shape}, l_contact: {l_contact.shape}")
         # print(f"u_dyn: {u_dyn.shape}, u_react: {u_react.shape}, u_contact: {u_contact.shape}")
         self.A = sparse.vstack([A_dyn, A_react, A_contact, A_contact_force_dir])
-        self.l = np.vstack([l_dyn, l_react, l_contact, l_contact_force_dir]).flatten()
-        self.u = np.vstack([u_dyn, u_react, u_contact, u_contact_force_dir]).flatten()
+        self.l = np.vstack([l_dyn, l_react, l_contact, l_contact_force_dir])
+        self.u = np.vstack([u_dyn, u_react, u_contact, u_contact_force_dir])
         # print(f"A: {self.A.shape}, l: {self.l.shape}, u: {self.u.shape}")
 
     def solve(self):
@@ -367,6 +371,8 @@ class WholeBodyController:
         # print(f"tau: {self.tau.T}")
     
         self.tau = np.clip(self.tau, self.tau_min, self.tau_max)
+        ctrl = self.tau + self.ddq_ik
+        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik))
         # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik), self.change_q_order(self.tau))
 
     def change_q_order(self, q):
@@ -387,16 +393,15 @@ def run_inverse_kinematics(conn):
 def run_whole_body_controller(conn):
     ChannelFactoryInitialize(1, "lo")
     wbc = WholeBodyController(conn)
-    
     while True:
         wbc.receive_ddq_ik()
-        wbc.start_joint_updates()
+        
         # print("Receiving data from IK")
         # wbc.compute_dynamics_constraints()
         Fc_sol, ddxc_sol, ddq_sol = wbc.solve()
         wbc.calculate_tau_cmd(Fc_sol.reshape(-1, 1), ddxc_sol.reshape(-1, 1), ddq_sol.reshape(-1, 1))
         
-        time.sleep(0.001)
+        # time.sleep(0.001)
 if __name__ == "__main__":
     # Create pipe
     parent_conn, child_conn = multiprocessing.Pipe()

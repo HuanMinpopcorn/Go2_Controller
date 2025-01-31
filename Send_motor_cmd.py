@@ -96,7 +96,6 @@ class send_motor_commands():
         # print("Press Ctrl+ C to enter Trot Gait ...")
         print("waiting for 1.2 seconds...")
         running_time = 0.0
-        # try: 
         while True:
             # Check if the robot is at the target body height
             running_time += self.step_size
@@ -112,11 +111,9 @@ class send_motor_commands():
             self.cmd.crc = self.crc.Crc(self.cmd)
             self.low_cmd_pub.Write(self.cmd)
             time.sleep(self.step_size)
-            # if running_time >= 1.2:
-            #         break
-         
-        # except :
-        #     pass
+            if running_time >= 1.2:
+                    break
+
 
 
 
