@@ -295,8 +295,8 @@ class InverseKinematic(ForwardKinematic):
         q1_ddot = np.linalg.pinv(Jb_c, rcond=1e-4) @ (x_b_dot[i] - J2_dot @ self.data.qvel.copy().reshape(-1, 1) )  # Body joint acceleration
         q2_ddot = np.linalg.pinv(Jsw_bc, rcond=1e-4) @ (x_sw_dot[i] - J3_dot @ self.data.qvel.copy().reshape(-1, 1))  # Swing leg joint acceleration
         # q3_ddot = Nsw_bc @ (q1_ddot + q2_ddot)  # Joint acceleration for the remaining joints
-        print("q1_ddot", q1_ddot.shape)
-        print("q2_ddot", q2_ddot.shape)
+        # print("q1_ddot", q1_ddot.shape)
+        # print("q2_ddot", q2_ddot.shape)
         ddqd_desired = q1_ddot + q2_ddot 
             
             
@@ -381,22 +381,21 @@ class InverseKinematic(ForwardKinematic):
                 dq_dot = self.kd * (self.change_q_order(self.dqd) - self.data.sensordata[12:24])
                 
                 # print(self.ddqd , self.tau, self.data.ctrl[:])
-                
                 self.ErrorPlotting.dq_error_data.append(dq_error)
-                
                 self.ErrorPlotting.dq_dot_data.append(dq_dot)
                 self.ErrorPlotting.output_data.append(dq_error + dq_dot)
                 self.ErrorPlotting.ddq_desired_data.append(self.ddq_desired)
                 
+                print("ddqd", self.ddq_desired)
                 # # TODO update the output for the Inverse Dynamics
-                self.ddqd = dq_error + dq_dot # desired joint acceleration
+                self.ddqd = dq_error + dq_dot + self.ddq_desired # desired joint acceleration
       
                 #  Send `ddqd` through the pipe
                 # print("Sending data through pipe...")
                 data_to_send = {
                     "qd": self.qd.tolist(),
                     "dqd": self.dqd.tolist(),
-                    "ddqd": self.change_q_order(self.ddqd).tolist(),
+                    "ddqd": self.ddqd.tolist(),
                     "J_contact": self.J1.tolist(),
                     "contact_legs": self.contact_legs,
                     "kp": self.kp, 

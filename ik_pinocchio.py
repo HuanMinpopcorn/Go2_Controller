@@ -78,7 +78,6 @@ class WholeBodyController:
         self.q_ik = np.zeros((self.model.nv - 6, 1))
         self.tau = np.zeros((self.model.nv - 6, 1))
 
-        self.ddq_desired = np.zeros((self.model.nv, 1))
 
         self.kp = 250 + 50 + 100
         self.kd = 10 
@@ -202,16 +201,6 @@ class WholeBodyController:
             
             self.dJ_contact[3 * self.contact_legs.index(leg):3 * (self.contact_legs.index(leg) + 1), :] = dJ_contact[:3, :]
     
-    def update_ddq_desired(self):
-        """
-        Compute the desired joint accelerations. through projection method 
-        """
-        
-        inv_Jc = np.linalg.pinv(self.J_contact, rcond=1e-5)
-        xc_desired = np.zeros((3 * self.num_contacts, 1))
-        # print(f"J_contact: {self.J_contact.shape}, dJ_contact: {self.dJ_contact.shape}, dq_ik: {self.qvel.shape}")
-        self.ddq_desired = inv_Jc @ (xc_desired - self.dJ_contact @ self.qvel.reshape(-1, 1))
-        print(f"ddq_desired: {self.ddq_desired}")
    
     def compute_dynamics_constraints(self):
         """
@@ -235,8 +224,9 @@ class WholeBodyController:
         tau_cmd = self.S.T @ self.tau  # Commanded torques
         # Receive ddq_cmd from InverseKinematics
         # calculate the desired joint accelerations through the j(q) derivative
-        self.ddq_dik = np.vstack((np.zeros((6, 1)), self.ddq_ik.reshape(-1,1))) + self.ddq_desired
-        
+        # self.ddq_dik = np.vstack((np.zeros((6, 1)), self.ddq_ik))
+        print(f"ddq_dik: {self.ddq_ik.shape}, dq_ik: {self.dq_ik.shape}, q_ik: {self.q_ik.shape}")
+        self.ddq_dik = np.vstack((np.zeros((6, 1)), self.ddq_ik))
     
         A1 = sparse.csc_matrix(-self.J_contact.T)  # Transposed contact Jacobian
         A2 = sparse.csc_matrix((self.J_contact.shape[1], self.J_contact.shape[0]))  # Placeholder
