@@ -225,7 +225,7 @@ class WholeBodyController:
         # Receive ddq_cmd from InverseKinematics
         # calculate the desired joint accelerations through the j(q) derivative
         # self.ddq_dik = np.vstack((np.zeros((6, 1)), self.ddq_ik))
-        print(f"ddq_dik: {self.ddq_ik.shape}, dq_ik: {self.dq_ik.shape}, q_ik: {self.q_ik.shape}")
+        # print(f"ddq_dik: {self.ddq_ik.shape}, dq_ik: {self.dq_ik.shape}, q_ik: {self.q_ik.shape}")
         self.ddq_dik = np.vstack((np.zeros((6, 1)), self.ddq_ik))
     
         A1 = sparse.csc_matrix(-self.J_contact.T)  # Transposed contact Jacobian
@@ -243,13 +243,20 @@ class WholeBodyController:
         """
         if self.conn.poll(timeout=1):
             ik_data = self.conn.recv()
-            self.ddq_ik = np.array(ik_data["ddqd"])
-            self.dq_ik =  np.array(ik_data["dqd"])
-            self.q_ik = np.array(ik_data["qd"])
+            self.ddq_ik = np.array(ik_data["ddqd"]).reshape(-1, 1)
+            self.dq_ik =  np.array(ik_data["dqd"]).reshape(-1, 1)
+            self.q_ik = np.array(ik_data["qd"]).reshape(-1, 1)
             self.J_contact_ik = np.array(ik_data["J_contact"])
             self.kp = np.array(ik_data["kp"])
             self.kd = np.array(ik_data["kd"])
-            # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik))
+
+            # print(f"ddq_ik shape: {self.ddq_ik.shape}")
+            # print(f"dq_ik shape: {self.dq_ik.shape}")
+            # print(f"q_ik shape: {self.q_ik.shape}")
+            # print(f"J_contact_ik shape: {self.J_contact_ik.shape}")
+            # print(f"kp shape: {self.kp}")
+            # print(f"kd shape: {self.kd}")
+            self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik))
             # self.contact_legs = ik_data["contact_legs"]
 
             # print(f"Received qd: {ik_data['qd']}")
@@ -362,7 +369,7 @@ class WholeBodyController:
     
         self.tau = np.clip(self.tau, self.tau_min, self.tau_max)
         ctrl = self.tau + self.ddq_ik
-        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik))
+        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik))
         # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik), self.change_q_order(self.tau))
 
     def change_q_order(self, q):
@@ -386,8 +393,6 @@ def run_whole_body_controller(conn):
     while True:
         wbc.receive_ddq_ik()
         
-        # print("Receiving data from IK")
-        # wbc.compute_dynamics_constraints()
         Fc_sol, ddxc_sol, ddq_sol = wbc.solve()
         wbc.calculate_tau_cmd(Fc_sol.reshape(-1, 1), ddxc_sol.reshape(-1, 1), ddq_sol.reshape(-1, 1))
         

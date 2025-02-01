@@ -44,10 +44,9 @@ if __name__ == "__main__":
         time.sleep(1.0)
         robot_state = task_space_reader.robot_state
         np.set_printoptions(precision=4, suppress=True)
-        print("\n=== Task States read the postion x and velocity v===")
-        print(np.array(robot_state.position))
+        print("\n=== Task States read the position x and velocity v ===")
+        print("Position:", np.array(robot_state.position))
+        print("Velocity:", np.array(robot_state.velocity))
         print("===============================================")
-        print(robot_state.foot_position_body)
-        print(robot_state.velocity)
     # Keep the program running to continue receiving data
    

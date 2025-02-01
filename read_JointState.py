@@ -59,7 +59,7 @@ class read_JointState:
         self.joint_tau[2], self.joint_tau[9], self.joint_tau[10], 
         self.joint_tau[11], self.joint_tau[6], self.joint_tau[7], self.joint_tau[8]])
 
-    
+      
 if __name__ == "__main__":
     ChannelFactoryInitialize(1, "lo")
     # Initialize the read_JointState class
@@ -77,10 +77,10 @@ if __name__ == "__main__":
         print(joint_state_reader.joint_velocity)
         print("\n=== joint acc  ===")
         print(joint_state_reader.joint_tau)
-        print("===============================================")
+        print("============imu data===================================")
         print(joint_state_reader.imu_data)
-        print("===============================================")
+        print("==============gyroscope=================================")
         print(joint_state_reader.imu_gyroscope)
-        print("===============================================")
+        print("================accelerometer===============================")
         print(joint_state_reader.imu_accelerometer)
         print("===============================================")

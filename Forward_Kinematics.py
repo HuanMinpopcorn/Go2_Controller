@@ -8,6 +8,8 @@ from read_JointState import read_JointState
 from read_TaskSpace import read_TaskSpace
 from Simulation import config
 
+from Send_motor_cmd import send_motor_commands
+
 class ForwardKinematic:
     def __init__(self, xml_path=config.ROBOT_SCENE):
         """
@@ -27,21 +29,26 @@ class ForwardKinematic:
    
         self.update_thread = None  # Thread for continuous updates
         self.running = False  # Control flag for the thread
+        # self.start_joint_updates()
 
         self.counter = 0
 
     def set_joint_angles(self):
         """
-        Sets the joint angles in the MuJoCo qpos array.
+        feed the topic's info to mujoco calculation 
+        offline from the mujoco simulation 
         """
         # TODO: Set the joint angles and robot state in the MuJoCo data structure
-        self.data.qpos[:3] = self.robot_state
+        self.data.qpos[:3] = self.robot_position
         self.data.qpos[3:7] = self.imu_data
         self.data.qpos[7:19] = self.joint_angles
 
         self.data.qvel[:3] = self.robot_velocity
         self.data.qvel[3:6] = self.imu_velocity
         self.data.qvel[6:19] = self.joint_velocity
+        
+        
+
 
     def run_fk(self):
         """
@@ -51,6 +58,7 @@ class ForwardKinematic:
         """
         # TODO: Run forward kinematics using MuJoCo
         mujoco.mj_forward(self.model, self.data)
+      
 
     def get_body_state(self, body_name):
         """
@@ -172,7 +180,9 @@ class ForwardKinematic:
         """
         # TODO: Continuously update joint angles and run forward kinematics
         while self.running:
-            self.robot_state = self.task_space_reader.robot_state.position
+
+            # update the sensor data from unitree sdk
+            self.robot_position = self.task_space_reader.robot_state.position
             self.robot_velocity = self.task_space_reader.robot_state.velocity
         
 
@@ -183,12 +193,15 @@ class ForwardKinematic:
             self.imu_data = self.joint_state_reader.imu_data
             self.imu_velocity = self.joint_state_reader.imu_gyroscope
             self.imu_acc = self.joint_state_reader.imu_accelerometer
+
+      
             self.set_joint_angles()
             self.run_fk()
             mujoco.mj_comPos(self.model, self.data) # Map inertias and motion dofs to global frame centered at CoM.
             mujoco.mj_crb(self.model, self.data)# Run composite rigid body inertia algorithm (CRB).
             mujoco.mj_comVel(self.model, self.data)
             mujoco.mj_inverse(self.model, self.data)
+            mujoco.mj_collision(self.model, self.data)
             time.sleep(config.SIMULATE_DT)
 
     def start_joint_updates(self):
@@ -212,7 +225,7 @@ class ForwardKinematic:
         Prints the joint angles and velocities.
         """
         # TODO: Print the joint angles and velocities
-        np.set_printoptions(precision=5, suppress=True)
+        # np.set_printoptions(precision=5, suppress=True)
         print("\n=== Joint Angles ===")
         print(self.data.qpos) 
         print("\n=== Joint Velocities ===")
@@ -229,7 +242,7 @@ class ForwardKinematic:
         state = self.get_body_state(body_name)
         jacobian = self.get_jacobian(body_name)
         jacobian_dot = self.get_jacobian_dot(body_name)
-        np.set_printoptions(precision=5, suppress=True)
+        # np.set_printoptions(precision=5, suppress=True)
         print(f"\n{body_name} Position: {state['position']}")
         print(f"{body_name} Orientation:\n{state['orientation']}")
         print(f"{body_name} Jacobian:\n{jacobian['J_pos']}")
@@ -242,10 +255,10 @@ class ForwardKinematic:
         # TODO: Print the general framework of the robot (number of coordinates, DOF, constraints, etc.)
         # print("\n=== General Framework ===")
         
-        # print("===n_q number of position coordinates==")
-        # print(self.model.nq)
-        # print("===n_V number of DOF ==")
-        # print(self.model.nv)
+        print("===n_q number of position coordinates==")
+        print(self.model.nq)
+        print("===n_V number of DOF ==")
+        print(self.model.nv)
         # print("===n_C number of active constraints==")
         # print(self.data.nefc)
         # print("===bias force==")
@@ -270,24 +283,32 @@ class ForwardKinematic:
         # print(self.data.subtree_com.shape)
         # print(self.data.cdof.shape)
         # print(self.data.cinert.shape)
-      
+        # check the sensor data 
+        print("===My model sensor data ===")
+        print(self.data.sensordata[:12])
+        print("===sensor joint vel ===")
+        print(self.data.sensordata[12:24])
+        print("===sensor joint torque ===")
+        print(self.data.sensordata[24:36])
+        print("===sensor imu data ===")
+        print(self.data.sensordata[36:40])
+        print("===sensor imu gyro ===")
+        print(self.data.sensordata[40:43])
+        print("===sensor imu acc ===")
+        print(self.data.sensordata[43:46])
+        print("===sensor frame data ===")
+        print(self.data.sensordata[46:49])
+        print("===sensor frame vel data ===")
+        print(self.data.sensordata[49:52])
+
+        
 
 # Example Usage
 if __name__ == "__main__":
 
-    MODE = "SDK"
-    if MODE == "SDK":
-        # ==== SDK Mode ====
-        ChannelFactoryInitialize(1, "lo")
-        # Initialize the Kinematics class with the XML file for the Go2 robot
-        # ROBOT_SCENE = "../unitree_mujoco/unitree_robots/go2/scene.xml"
-        # run the forward kinematics    
-        # fk = ForwardKinematic(ROBOT_SCENE)
-        fk = ForwardKinematic()
-        fk.start_joint_updates()
-        # === end ==
-    # fk.print_general_framework()
-    fk.print_joint_data()
-    fk.print_kinematics("FR_foot")
-    # fk.print_joint_data() 
-    time.sleep(5.0) 
+
+
+    ChannelFactoryInitialize(1, "lo")
+    fk = ForwardKinematic()
+    # print(fk.print_joint_data())
+    # time.sleep(1.0)

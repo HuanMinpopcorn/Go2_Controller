@@ -8,8 +8,22 @@ class ErrorPlotting:
         # Data storage for plotting
         self.q_desired_data = []
         self.q_current_data = []
+        self.q_error_data = []
+
+        # Data storage for plotting
+        self.dq_desired_data = []
+        self.dq_current_data = []
+        self.dq_error_data = []
+
+        self.ddq_desired_data = []
+        self.ddq_current_data = []
+        self.ddq_error_data = []
+
+        # IK data storage
         self.q_err_data = []
         self.q3_dot_data = []
+
+
         # Data storage for plotting
         self.xb_data = []
         self.x2_data = []
@@ -22,8 +36,6 @@ class ErrorPlotting:
         self.q2_dot_data = []
 
         self.dq_cmd_data = []
-        self.dq_error_data = []
-        self.dq_dot_data = []
         self.output_data = []
 
         # Inverse dynamics data storage
@@ -67,7 +79,7 @@ class ErrorPlotting:
         plt.legend()
 
     @staticmethod
-    def plot_q_error(q_desired, q_actual):
+    def plot_q_error(q_desired, q_actual, q_error, title):
         """
         Plot the joint angles, desired joint angles, joint position error, and actuated joint angles.
 
@@ -82,36 +94,39 @@ class ErrorPlotting:
         for joint in range(3):
             plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
             plt.plot([qa[joint] for qa in q_actual], label=f'q_actual[{labels[joint]}]', linestyle='-')
-        plt.title('q_config Over Time')
+            # plt.plot([qe[joint] for qe in q_error], label=f'q_error[{labels[joint]}]', color='red', linestyle='-.', scalex=1.5)
+        plt.title(f'{title} Over Time')
         plt.xlabel('Iteration')
-        plt.ylabel('q')
+        plt.ylabel(f'{title}')
         plt.legend()
 
         plt.subplot(4, 1, 2)
         for joint in range(3, 6):
             plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
             plt.plot([qa[joint] for qa in q_actual], label=f'q_actual[{labels[joint]}]', linestyle='-')
-        plt.title('q_config Over Time')
+            # plt.plot([qe[joint] for qe in q_error], label=f'q_error[{labels[joint]}]', color='red', linestyle='-.', scalex=1.5)
+        plt.title(f'{title} Over Time')
         plt.xlabel('Iteration')
-        plt.ylabel('q')
+        plt.ylabel(f'{title}')
         plt.legend()
 
         plt.subplot(4, 1, 3)
         for joint in range(6, 9):
             plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
             plt.plot([qa[joint] for qa in q_actual], label=f'q_actual[{labels[joint]}]', linestyle='-')
-        plt.title('q_config Over Time')
+            # plt.plot([qe[joint] for qe in q_error], label=f'q_error[{labels[joint]}]', color='red', linestyle='-.', scalex=1.5)
+        plt.title(f'{title} Over Time')
         plt.xlabel('Iteration')
-        plt.ylabel('q')
+        plt.ylabel(f'{title}')
         plt.legend()
 
         plt.subplot(4, 1, 4)
         for joint in range(9, 12):
             plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
             plt.plot([qa[joint] for qa in q_actual], label=f'q_actual[{labels[joint]}]', linestyle='-')
-        plt.title('q_config Over Time')
+        plt.title(f'{title} Over Time')
         plt.xlabel('Iteration')
-        plt.ylabel('q')
+        plt.ylabel(f'{title}')
         plt.legend()
 
     @staticmethod
@@ -194,16 +209,27 @@ class ErrorPlotting:
         if title == "Body":
             labels = ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
         else:
+            # labels = ['x_front', 'y_front', 'z_front']
             labels = ['x_front', 'y_front', 'z_front', 'x_rear', 'y_rear', 'z_rear']
         plt.figure(figsize=(12, 18))
 
         for i, label in enumerate(labels):
-            plt.subplot(6, 1, i + 1)
+            plt.subplot(len(labels), 1, i + 1)
             plt.plot([data[i] for data in desired_state], label=f'desired_state[{label}]', linestyle='--')
             plt.plot([data[i] for data in current_state], label=f'current_state[{label}]', linestyle='-')
-            # plt.plot([data[i] for data in state_error], label=f'state_error[{label}]', linestyle='-.')
+            # plt.plot([data[i] for data in state_error], label=f'state_error[{label}]', linestyle='-.', color='red')
             plt.title(f'{title} {label.capitalize()} Over Time')
             plt.xlabel('Iteration')
             plt.ylabel(f'{label.capitalize()}')
             plt.legend()
-            # plt.axis('equal',)
+
+
+    def plot_contact_acceleration(self, ddxc, title):
+
+        plt.figure(figsize=(12, 6))
+        plt.plot(ddxc)
+        plt.title(f'{title} Over Time')
+        plt.xlabel('Iteration')
+        plt.ylabel('ddxc')
+        plt.legend()
+       
