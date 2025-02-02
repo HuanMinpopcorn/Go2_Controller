@@ -18,9 +18,12 @@ from unitree_sdk2py.core.channel import (
     ChannelPublisher, ChannelSubscriber, ChannelFactoryInitialize
 )
 from Send_motor_cmd import send_motor_commands
-
+from error_plotting import ErrorPlotting
+import tqdm
+import matplotlib.pyplot as plt
 class WholeBodyController:
     def __init__(self, conn):
+    # def __init__(self):
         """
         Initialize the Whole Body Controller.
 
@@ -58,10 +61,11 @@ class WholeBodyController:
         # print(self.model.nq) # 19
 
 
-        self.num_contacts = 2
+        
         self.swing_legs = ["FL_foot", "RR_foot"]
-        self.contact_legs = ["FR_foot", "RL_foot"]
-
+        self.contact_legs = ["FL_foot", "RR_foot"] + ["FR_foot", "RL_foot"]
+        self.num_contacts = len(self.contact_legs)
+        print(self.num_contacts) # 4
         self.qpos = np.zeros(self.model.nq)
         self.qvel = np.zeros(self.model.nv)
         # print(self.qpos.shape)
@@ -78,14 +82,18 @@ class WholeBodyController:
         self.q_ik = np.zeros((self.model.nv - 6, 1))
         self.tau = np.zeros((self.model.nv - 6, 1))
 
+        self.desire_body_position = [-0.013, 0.0, 0.266]
 
-        self.kp = 250 + 50 + 100
-        self.kd = 10 
+        # self.kp = 250 + 50 + 100
+        # self.kd = 10 
+        self.kp = 0
+        self.kd = 0
 
+        
         # Weight matrices for cost function
-        self.WF = sparse.csc_matrix(np.eye(self.F_dim) * 1000)  # Weight for contact forces
+        self.WF = sparse.csc_matrix(np.eye(self.F_dim) * 1)  # Weight for contact forces
         self.Wc = sparse.csc_matrix(np.eye(self.ddxc_dim) * 1000)  # Weight for contact accelerations
-        self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim)* 100)  # Weight for joint accelerations
+        self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim)* 1)  # Weight for joint accelerations
 
   
         # Optimization solver
@@ -105,6 +113,9 @@ class WholeBodyController:
 
         # Initialize the API
         self.cmd = send_motor_commands()
+        self.ErrorPlotting = ErrorPlotting()
+        self.start_joint_updates()
+
     def start_joint_updates(self):
         """
         Start a thread to update joint angles.
@@ -123,11 +134,13 @@ class WholeBodyController:
         while self.running:
             self.robot_state = self.task_space_reader.robot_state.position
             self.robot_velocity = self.task_space_reader.robot_state.velocity
+            # print(self.robot_state)
         
 
             self.joint_angles = self.joint_state_reader.joint_angles
             self.joint_velocity = self.joint_state_reader.joint_velocity
-            self.joint_toque = self.joint_state_reader.joint_tau
+            self.joint_torque = self.joint_state_reader.joint_tau
+            self.tau = self.joint_torque
             
             self.imu_data = self.joint_state_reader.imu_data
             self.imu_velocity = self.joint_state_reader.imu_gyroscope
@@ -135,7 +148,6 @@ class WholeBodyController:
             self.set_joint_angles()
             self.update_pinocchio_fk_model()
             self.update_jacobian_derivative()
-            self.update_ddq_desired()
             # print("Updated all joint angles in pinocchio model")
 
     def set_joint_angles(self):
@@ -159,7 +171,6 @@ class WholeBodyController:
         self.qvel[:3] = self.robot_velocity
         self.qvel[3:6] = self.imu_velocity
         self.qvel[6:19] = self.joint_velocity
-
 
     def update_pinocchio_fk_model(self):
         """
@@ -214,28 +225,57 @@ class WholeBodyController:
         Returns:
             A_dyn, l_dyn, u_dyn: Dynamics constraint matrix and bounds.
         """
+        q = self.qpos  # Shape: (nq,)
+        v = self.qvel  # Shape: (nv,)
         # Compute mass matrix
-        self.M = pin.crba(self.model, self.data, self.qpos)
+        pin.crba(self.model, self.data, q)
+        self.M = self.data.M.copy()
+    
+        pin.computeCoriolisMatrix(self.model, self.data, q , v)
+        self.Coriolis = self.data.C.copy() @ v.reshape(-1,1)
         
-        # Compute bias forces
-        self.bias_forces = pin.rnea(self.model, self.data, self.qpos, self.qvel, np.zeros(self.ddq_dim)).reshape(-1, 1)
+        pin.computeGeneralizedGravity(self.model, self.data, q)
+        self.G = self.data.g.copy().reshape(-1,1)
+
         
         self.S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
-        tau_cmd = self.S.T @ self.tau  # Commanded torques
+        tau_cmd = (self.S.T @ self.tau).reshape(-1,1)  # Commanded torques
         # Receive ddq_cmd from InverseKinematics
-        # calculate the desired joint accelerations through the j(q) derivative
-        # self.ddq_dik = np.vstack((np.zeros((6, 1)), self.ddq_ik))
-        # print(f"ddq_dik: {self.ddq_ik.shape}, dq_ik: {self.dq_ik.shape}, q_ik: {self.q_ik.shape}")
-        self.ddq_dik = np.vstack((np.zeros((6, 1)), self.ddq_ik))
-    
+  
+
+
         A1 = sparse.csc_matrix(-self.J_contact.T)  # Transposed contact Jacobian
         A2 = sparse.csc_matrix((self.J_contact.shape[1], self.J_contact.shape[0]))  # Placeholder
         A3 = sparse.csc_matrix(self.M)  # Mass matrix in sparse format
         A_matrix = sparse.hstack([A1, A2, A3])  # Constraint matrix
-        dynamics_u = tau_cmd - self.bias_forces - self.M @ self.ddq_dik # Equality constraint RHS
+        dynamics_u = tau_cmd - self.Coriolis - self.G - self.M @ self.ddq_dik # Equality constraint RHS
         dynamics_l = dynamics_u  # Equality constraint bounds
         # print(f"A_matrix: {A_matrix.shape}, dynamics_l: {dynamics_l.shape}, dynamics_u: {dynamics_u.shape}")
         return A_matrix, dynamics_l, dynamics_u
+    
+    def convert_quat_to_euler(self, quat):
+        """
+        Convert quaternion to Euler angles.
+
+        Parameters:
+            quat (np.ndarray): Quaternion to convert in the order [q0, q1, q2, q3].
+
+        Returns:
+            np.ndarray: Euler angles [roll, pitch, yaw] in radians.
+        """
+        q0, q1, q2, q3 = quat
+        sin_pitch = 2 * (q0 * q2 - q3 * q1)
+        sin_pitch = np.clip(sin_pitch, -1.0, 1.0)
+        
+        roll = np.arctan2(2 * (q0 * q1 + q2 * q3), 1 - 2 * (q1**2 + q2**2))
+        pitch = np.arcsin(sin_pitch)
+        yaw = np.arctan2(2 * (q0 * q3 + q1 * q2), 1 - 2 * (q2**2 + q3**2))
+        
+        roll = np.clip(roll, -np.pi/2, np.pi/2)
+        pitch = np.clip(pitch, -np.pi/2, np.pi/2)
+        yaw = np.clip(yaw, -np.pi, np.pi)
+        
+        return np.array([roll, pitch, yaw]).round(3)
     
     def receive_ddq_ik(self):
         """
@@ -246,25 +286,14 @@ class WholeBodyController:
             self.ddq_ik = np.array(ik_data["ddqd"]).reshape(-1, 1)
             self.dq_ik =  np.array(ik_data["dqd"]).reshape(-1, 1)
             self.q_ik = np.array(ik_data["qd"]).reshape(-1, 1)
+            self.ddq_dik = np.vstack((np.zeros((6, 1)), np.array(ik_data["ddq_desired"]).reshape(-1, 1)))
             self.J_contact_ik = np.array(ik_data["J_contact"])
             self.kp = np.array(ik_data["kp"])
             self.kd = np.array(ik_data["kd"])
 
-            # print(f"ddq_ik shape: {self.ddq_ik.shape}")
-            # print(f"dq_ik shape: {self.dq_ik.shape}")
-            # print(f"q_ik shape: {self.q_ik.shape}")
-            # print(f"J_contact_ik shape: {self.J_contact_ik.shape}")
-            # print(f"kp shape: {self.kp}")
-            # print(f"kd shape: {self.kd}")
-            self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik))
-            # self.contact_legs = ik_data["contact_legs"]
-
-            # print(f"Received qd: {ik_data['qd']}")
-            # print(f"Received dqd: {ik_data['dqd']}")
-            # print(f"Received ddqd: {ik_data['ddqd']}")
+ 
         else:
             print("Waiting for data...")
-            self.receive_ddq_ik()
         
     def compute_reaction_force_constraints(self):
         """
@@ -329,9 +358,7 @@ class WholeBodyController:
         A_react, l_react, u_react = self.compute_reaction_force_constraints()
         A_contact, l_contact, u_contact = self.compute_contact_acceleration_constraints()
         A_contact_force_dir, l_contact_force_dir, u_contact_force_dir = self.compute_contact_force_direction_constraints()
-        # print(f"A_dyn: {A_dyn.shape}, A_react: {A_react.shape}, A_contact: {A_contact.shape}")
-        # print(f"l_dyn: {l_dyn.shape}, l_react: {l_react.shape}, l_contact: {l_contact.shape}")
-        # print(f"u_dyn: {u_dyn.shape}, u_react: {u_react.shape}, u_contact: {u_contact.shape}")
+
         self.A = sparse.vstack([A_dyn, A_react, A_contact, A_contact_force_dir])
         self.l = np.vstack([l_dyn, l_react, l_contact, l_contact_force_dir])
         self.u = np.vstack([u_dyn, u_react, u_contact, u_contact_force_dir])
@@ -349,13 +376,14 @@ class WholeBodyController:
         self.prob.setup(P=self.P, q=self.q, A=self.A, l=self.l, u=self.u, verbose=False)
         result = self.prob.solve()
 
-        # Extract accelerations and forces
-
-        ddq_sol = result.x[-self.ddq_dim:]
+        # Extract accelerations and forces      
         Fc_sol = result.x[:self.F_dim]
         ddxc_sol = result.x[self.F_dim:self.F_dim + self.ddxc_dim]
-
+        ddq_sol = result.x[-self.ddq_dim:]
         # print(f"ddq_sol: {ddq_sol.shape}, Fc_sol: {Fc_sol.shape}, ddxc_sol: {ddxc_sol.shape}")
+        self.ErrorPlotting.Fc_data.append(Fc_sol)
+        self.ErrorPlotting.ddxc_data.append(ddxc_sol)
+        self.ErrorPlotting.ddq_diff_data.append(ddq_sol)
         return  Fc_sol, ddxc_sol, ddq_sol
     
     def calculate_tau_cmd(self, Fc_sol, ddxc_sol, ddq_sol):
@@ -363,15 +391,14 @@ class WholeBodyController:
         Calculate the commanded torques.
         # """
         self.tau = np.zeros((self.model.nv - 6, 1))
-        self.tau =  np.linalg.pinv(self.S.T) @ (self.M @ (self.ddq_dik + ddq_sol) + self.bias_forces - self.J_contact.T @ Fc_sol) 
+        self.tau =  np.linalg.pinv(self.S.T) @ (self.M @ (self.ddq_dik + ddq_sol) + self.Coriolis + self.G - self.J_contact.T @ Fc_sol) 
         # print(f"Fc_sol: {Fc_sol.T} \n, ddxc_sol: {ddxc_sol.T} \n, ddq_sol: {ddq_sol.T} \n", end="\n")
         # print(f"tau: {self.tau.T}")
     
         self.tau = np.clip(self.tau, self.tau_min, self.tau_max)
-        ctrl = self.tau + self.ddq_ik
-        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik))
-        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik), self.change_q_order(self.tau))
 
+        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik),self.change_q_order(self.tau))
+        self.ErrorPlotting.tau_data.append(self.tau)
     def change_q_order(self, q):
         """
         Change the order of the joint angles.
@@ -389,14 +416,19 @@ def run_inverse_kinematics(conn):
 
 def run_whole_body_controller(conn):
     ChannelFactoryInitialize(1, "lo")
+    
     wbc = WholeBodyController(conn)
-    while True:
+    wbc.cmd.move_to_initial_position()
+
+    for _ in tqdm.tqdm(range(1000), desc="Running Inverse Dynamics"):
         wbc.receive_ddq_ik()
-        
         Fc_sol, ddxc_sol, ddq_sol = wbc.solve()
         wbc.calculate_tau_cmd(Fc_sol.reshape(-1, 1), ddxc_sol.reshape(-1, 1), ddq_sol.reshape(-1, 1))
-        
-        # time.sleep(0.001)
+    wbc.ErrorPlotting.plot_contact_force(wbc.ErrorPlotting.Fc_data, "Contact Force")
+    wbc.ErrorPlotting.plot_contact_acceleration(wbc.ErrorPlotting.ddxc_data, "Contact Acceleration")
+    wbc.ErrorPlotting.plot_full_body_state(wbc.ErrorPlotting.ddq_diff_data, "Joint Accelerations")
+    wbc.ErrorPlotting.plot_torque(wbc.ErrorPlotting.tau_data, "Joint Torques")
+    plt.show()
 if __name__ == "__main__":
     # Create pipe
     parent_conn, child_conn = multiprocessing.Pipe()

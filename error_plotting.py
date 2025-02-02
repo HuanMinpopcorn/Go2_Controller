@@ -225,11 +225,50 @@ class ErrorPlotting:
 
 
     def plot_contact_acceleration(self, ddxc, title):
+        num_subplots = len(ddxc[0]) 
+        plt.figure(figsize=(12, 6 * num_subplots))
+        
+        for i in range(num_subplots):
+            plt.subplot(num_subplots, 1, i + 1)
+            plt.plot([data[i] for data in ddxc], label=f'ddxc[{i}]')
+            plt.title(f'{title} {i} Over Time')
+            plt.xlabel('Iteration')
+            plt.ylabel(f'ddxc[{i}]')
+            plt.legend()
 
-        plt.figure(figsize=(12, 6))
-        plt.plot(ddxc)
-        plt.title(f'{title} Over Time')
-        plt.xlabel('Iteration')
-        plt.ylabel('ddxc')
-        plt.legend()
+    def plot_full_body_state(self, q_full, title):
+        labels = ['x', 'y', 'z', 'roll', 'pitch', 'yaw', 'FR_hip', 'FR_thigh', 'FR_calf', 'FL_hip', 'FL_thigh', 'FL_calf', 'RR_hip', 'RR_thigh', 'RR_calf', 'RL_hip', 'RL_thigh', 'RL_calf']
+
+        plt.figure(figsize=(12, 18))
+        for i, label in enumerate(labels):
+            plt.subplot(len(labels), 1, i + 1)
+            plt.plot([data[i] for data in q_full], label=f'q_full[{label}]')
+            plt.title(f'{title} {label.capitalize()} Over Time')
+            plt.xlabel('Iteration')
+            plt.ylabel(f'{label.capitalize()}')
+            plt.legend()
+
+    def plot_contact_force(self, Fc, title):
+        num_subplots = len(Fc[0])
+        plt.figure(figsize=(12, 6 * num_subplots))
+        
+        for i in range(num_subplots):
+            plt.subplot(num_subplots, 1, i + 1)
+            plt.plot([data[i] for data in Fc], label=f'Fc[{i}]')
+            plt.title(f'{title} {i} Over Time')
+            plt.xlabel('Iteration')
+            plt.ylabel(f'Fc[{i}]')
+            plt.legend()
+
+    def plot_torque(self, tau, title):
+        labels = ['FR_hip', 'FR_thigh', 'FR_calf', 'FL_hip', 'FL_thigh', 'FL_calf', 'RR_hip', 'RR_thigh', 'RR_calf', 'RL_hip', 'RL_thigh', 'RL_calf']
+
+        plt.figure(figsize=(12, 18))
+        for i, label in enumerate(labels):
+            plt.subplot(len(labels), 1, i + 1)
+            plt.plot([data[i] for data in tau], label=f'tau[{label}]')
+            plt.title(f'{title} {label.capitalize()} Over Time')
+            plt.xlabel('Iteration')
+            plt.ylabel(f'{label.capitalize()}')
+            plt.legend()
        

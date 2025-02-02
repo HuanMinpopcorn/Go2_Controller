@@ -13,6 +13,7 @@ from unitree_sdk2py.core.channel import (
 import multiprocessing
 from multiprocessing import Process, Pipe
 import time 
+from tqdm import tqdm
 
 class InverseKinematic(ForwardKinematic):
     """
@@ -30,8 +31,9 @@ class InverseKinematic(ForwardKinematic):
         self.num_actuated_joints = self.model.nv - 6
 
         # Robot parameters
-        self.body_height = 0.25 
-        self.swing_height = 0.075
+        self.body_height = 0.225 
+        # self.swing_height = 0.075
+        self.swing_height = 0.0
         self.velocity = 0  # Forward velocity
 
         # Initialize the leg positions
@@ -48,7 +50,7 @@ class InverseKinematic(ForwardKinematic):
         self.ErrorPlotting = ErrorPlotting()
 
         # intial the API gain 
-        self.kp = 400 
+        self.kp = 300 
         self.kd = 10
         # intial the gain for the body and swing leg
         self.kc = 1
@@ -159,7 +161,7 @@ class InverseKinematic(ForwardKinematic):
             t = i / self.K  # Normalized time step
             desired_body_configuration[0] = initial_body_configuration[0] +  self.cubic_spline(i, self.K, self.velocity * self.swing_time)
             desired_body_configuration[1] = initial_body_configuration[1] 
-            desired_body_configuration[2] = initial_body_configuration[2] 
+            desired_body_configuration[2] = self.body_height # Set desired body height
             # desired_body_configuration[2] = self.body_height # Set desired body height
         
             body_moving_trajectory.append(desired_body_configuration.copy())
@@ -319,18 +321,19 @@ class InverseKinematic(ForwardKinematic):
         x_b_dot = self.compute_desired_body_state_velocity_trajectory()
 
         
-        while not self._stop_event.is_set():  # Use event flag instead of while True
+        # while not self._stop_event.is_set():  # Use event flag instead of while True
+        for _ in tqdm(range(5000), desc="Running Inverse Kinematics"):
             try:
                 i = (i + 1) % self.K  # Loop over the swing cycle duration
     
-                if i == 0:
-                    # over one cycle
-                    self.transition_legs()
-                    x_sw = self.compute_desired_swing_leg_trajectory() 
-                    x_b = self.compute_desired_body_state()  # update the body state for the next cycle
-                    x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
-                    x_b_dot = self.compute_desired_body_state_velocity_trajectory()
-                    # print("Transitioning legs...")
+                # if i == 0:
+                #     # over one cycle
+                #     self.transition_legs()
+                #     x_sw = self.compute_desired_swing_leg_trajectory() 
+                #     x_b = self.compute_desired_body_state()  # update the body state for the next cycle
+                #     x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
+                #     x_b_dot = self.compute_desired_body_state_velocity_trajectory()
+                #     # print("Transitioning legs...")
                 
                            
                 joint_angles = self.joint_angles # get the current joint angles
@@ -359,14 +362,14 @@ class InverseKinematic(ForwardKinematic):
                                                                     x_b, x_sw, 
                                                                     i, joint_angles)
                 
-                self.ddq_desired = self.desired_joint_acceleration(self.J1, self.J2, self.J3,
+                self.ddq = self.desired_joint_acceleration(self.J1, self.J2, self.J3,
                                                                     self.J1_dot, self.J2_dot, self.J3_dot,
                                                                     self.x1, self.x2, self.x3,
                                                                     i, x_b_dot, x_sw_dot)
 
                 dq_error = self.kp * (self.change_q_order(self.qd) - self.data.sensordata[:self.num_actuated_joints])
                 dq_dot_error = self.kd * (self.change_q_order(self.dqd) - self.data.sensordata[self.num_actuated_joints:self.num_actuated_joints * 2])
-                self.ddqd = self.ddq_desired.reshape(-1, 1) + dq_error.reshape(-1, 1) + dq_dot_error.reshape(-1, 1)  # desired joint acceleration
+                self.ddq_desired = self.ddq.reshape(-1, 1) + self.change_q_order(dq_error.reshape(-1, 1)) + self.change_q_order(dq_dot_error.reshape(-1, 1))  # desired joint acceleration
 
     
                 # calculate the contact foot acceleration
@@ -377,11 +380,10 @@ class InverseKinematic(ForwardKinematic):
                 mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
                 B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
                 S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
-                self.tau = np.linalg.pinv(S.T) @ (M @ np.vstack((np.zeros((6, 1)), self.ddqd)) + B - self.data.qfrc_inverse.reshape(-1, 1))
-                # print("tau", self.tau.flatten())
-                # calculate ctrl output through PD controller 
-                self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
-                # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau.flatten()))
+                self.tau = np.linalg.pinv(S.T) @ (M @ np.vstack((np.zeros((6, 1)), self.ddq_desired)) + B - self.data.qfrc_inverse.reshape(-1, 1))
+
+        
+                # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd),self.change_q_order(self.tau))
                 # print(self.ddqd , self.tau, self.data.ctrl[:])
                 # get the desired q qdot qddot and current q, qdot 
                 self.ErrorPlotting.q_desired_data.append(self.change_q_order(self.qd))
@@ -393,16 +395,18 @@ class InverseKinematic(ForwardKinematic):
                 self.ErrorPlotting.dq_current_data.append(self.joint_velocity)
                 self.ErrorPlotting.dq_error_data.append(dq_dot_error)
             
-                self.ErrorPlotting.ddq_desired_data.append(self.change_q_order(self.ddq_desired))
+                self.ErrorPlotting.ddq_desired_data.append(self.change_q_order(self.ddq))
                 self.ErrorPlotting.ddq_current_data.append(self.change_q_order(self.data.sensordata[self.num_actuated_joints * 2 :self.num_actuated_joints * 3]))
-                self.ErrorPlotting.ddq_error_data.append(self.change_q_order(self.ddq_desired - self.data.sensordata[self.num_actuated_joints * 3 :self.num_actuated_joints * 4]))
+                self.ErrorPlotting.ddq_error_data.append(self.change_q_order(self.ddq - self.data.sensordata[self.num_actuated_joints * 3 :self.num_actuated_joints * 4]))
              
+                self.ErrorPlotting.tau_data.append(self.tau.flatten())
                 #  Send `ddqd` through the pipe
                 # print("Sending data through pipe...")
                 data_to_send = {
                     "qd": self.qd.tolist(),
                     "dqd": self.dqd.tolist(),
                     "ddqd": self.ddqd.tolist(),
+                    "ddqd_desired": self.ddq_desired.tolist(),
                     "J_contact": self.J1.tolist(),
                     "contact_legs": self.contact_legs,
                     "kp": self.kp, 
@@ -421,9 +425,10 @@ class InverseKinematic(ForwardKinematic):
                     break
     
             
-            trail += 1
-            if trail > 5000: # 5000 steps 
-                break
+            # trail += 1
+            # for _ in tqdm(range(5000), desc="Running Inverse Kinematics"):
+            #     if self._stop_event.is_set():
+            #         break
         # call the error plotting class for plotting the data
 
         # plot ddq_desired, dq_desired, q_desired  
@@ -453,6 +458,8 @@ class InverseKinematic(ForwardKinematic):
                                                          self.ErrorPlotting.x3_data, 
                                                          self.ErrorPlotting.dx_sw_data, 
                                                          "Swing")
+        
+        self.ErrorPlotting.plot_torque(self.ErrorPlotting.tau_data,"joint toque")
 
         plt.show()
         time.sleep(20)
@@ -484,7 +491,7 @@ class InverseKinematic(ForwardKinematic):
         Main function to run the Inverse Kinematic controller.
         """
         self.start_joint_updates()
-        self.cmd.move_to_initial_position()
+        # self.cmd.move_to_initial_position()
         self.initialize()
         self.calculate()
 
@@ -503,12 +510,12 @@ if __name__ == "__main__":
         while True:
             if parent_conn.poll(timeout=1):
                 data = parent_conn.recv()
-                print("Received data")
-                # print(f"Received qd: {data['qd']}")
-                # print(f"Received dqd: {data['dqd']}")
-                # print(f"Received ddqd: {data['ddqd']}")
-            else:
-                print("Waiting for data...")
+            #     print("Received data")
+            #     # print(f"Received qd: {data['qd']}")
+            #     # print(f"Received dqd: {data['dqd']}")
+            #     # print(f"Received ddqd: {data['ddqd']}")
+            # else:
+            #     print("Waiting for data...")
                 
     except KeyboardInterrupt:
         print("\nTerminating process...")

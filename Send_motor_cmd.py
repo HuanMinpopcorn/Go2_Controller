@@ -65,7 +65,7 @@ class send_motor_commands():
             motor.tau = 0.0
         return cmd
 
-    def send_motor_commands(self, kp, kd,new_joint_angles, q_dot, torque=np.zeros(12)):
+    def send_motor_commands(self, kp = 0, kd = 0,new_joint_angles=np.zeros(12), q_dot=np.zeros(12) , torque=np.zeros(12)):
         """
         Send motor commands to the robot using the publisher.
         """
