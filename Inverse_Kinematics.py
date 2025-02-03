@@ -35,7 +35,7 @@ class InverseKinematic(ForwardKinematic):
         # Robot parameters
         self.body_height = 0.225 
         self.swing_height = 0.075
-        # self.swing_height = 0.0
+        self.swing_height = 0.0
         self.velocity = 0  # Forward velocity
 
         # Initialize the leg positions
@@ -337,18 +337,18 @@ class InverseKinematic(ForwardKinematic):
         
         # # while not self._stop_event.is_set():  # Use event flag instead of while True
 
-        if index < self.K - 1:
-            index += 1
-        else:
-            self.transition_legs()
-            index = 0
-            # Smooth transition of legs
-            self.transition_legs()
-            self.initialize()
-            x_sw = self.compute_desired_swing_leg_trajectory() 
-            x_b = self.compute_desired_body_state()  # update the body state for the next cycle
-            x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
-            x_b_dot = self.compute_desired_body_state_velocity_trajectory()
+        # if index < self.K - 1:
+        #     index += 1
+        # else:
+        #     self.transition_legs()
+        #     index = 0
+        #     # Smooth transition of legs
+        #     self.transition_legs()
+        #     self.initialize()
+        #     x_sw = self.compute_desired_swing_leg_trajectory() 
+        #     x_b = self.compute_desired_body_state()  # update the body state for the next cycle
+        #     x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
+        #     x_b_dot = self.compute_desired_body_state_velocity_trajectory()
             # Smoothly blend the new trajectories with the current state
             # x_sw = 0.5 * (x_sw + self.x3)
             # x_b = 0.5 * (x_b + self.x2)
