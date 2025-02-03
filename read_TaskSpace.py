@@ -23,7 +23,7 @@ class read_TaskSpace:
         global robot_state
         self.robot_state = msg
         # imu has an offset from the robot's base link
-        self.robot_state.position = self.robot_state.position - self.imu_pos
+        self.robot_state.position = self.robot_state.position - np.array([-0.02557, 0, 0.04232])
     
     # the robot state include
     # position

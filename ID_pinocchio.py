@@ -286,10 +286,12 @@ class WholeBodyController:
             self.ddq_ik = np.array(ik_data["ddqd"]).reshape(-1, 1)
             self.dq_ik =  np.array(ik_data["dqd"]).reshape(-1, 1)
             self.q_ik = np.array(ik_data["qd"]).reshape(-1, 1)
-            self.ddq_dik = np.vstack((np.zeros((6, 1)), np.array(ik_data["ddq_desired"]).reshape(-1, 1)))
+            self.ddq_dik = np.vstack((np.zeros((6, 1)), np.array(ik_data["ddqd_desired"]).reshape(-1, 1)))
             self.J_contact_ik = np.array(ik_data["J_contact"])
             self.kp = np.array(ik_data["kp"])
             self.kd = np.array(ik_data["kd"])
+            # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik))
+
 
  
         else:
@@ -397,7 +399,7 @@ class WholeBodyController:
     
         self.tau = np.clip(self.tau, self.tau_min, self.tau_max)
 
-        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik),self.change_q_order(self.tau))
+        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.q_ik), self.change_q_order(self.dq_ik),self.change_q_order(self.tau))
         self.ErrorPlotting.tau_data.append(self.tau)
     def change_q_order(self, q):
         """
@@ -420,15 +422,15 @@ def run_whole_body_controller(conn):
     wbc = WholeBodyController(conn)
     wbc.cmd.move_to_initial_position()
 
-    for _ in tqdm.tqdm(range(1000), desc="Running Inverse Dynamics"):
-        wbc.receive_ddq_ik()
-        Fc_sol, ddxc_sol, ddq_sol = wbc.solve()
-        wbc.calculate_tau_cmd(Fc_sol.reshape(-1, 1), ddxc_sol.reshape(-1, 1), ddq_sol.reshape(-1, 1))
-    wbc.ErrorPlotting.plot_contact_force(wbc.ErrorPlotting.Fc_data, "Contact Force")
-    wbc.ErrorPlotting.plot_contact_acceleration(wbc.ErrorPlotting.ddxc_data, "Contact Acceleration")
-    wbc.ErrorPlotting.plot_full_body_state(wbc.ErrorPlotting.ddq_diff_data, "Joint Accelerations")
-    wbc.ErrorPlotting.plot_torque(wbc.ErrorPlotting.tau_data, "Joint Torques")
-    plt.show()
+    # for _ in tqdm.tqdm(range(1000), desc="Running Inverse Dynamics"):
+    wbc.receive_ddq_ik()
+        # Fc_sol, ddxc_sol, ddq_sol = wbc.solve()
+        # wbc.calculate_tau_cmd(Fc_sol.reshape(-1, 1), ddxc_sol.reshape(-1, 1), ddq_sol.reshape(-1, 1))
+    # wbc.ErrorPlotting.plot_contact_force(wbc.ErrorPlotting.Fc_data, "Contact Force")
+    # wbc.ErrorPlotting.plot_contact_acceleration(wbc.ErrorPlotting.ddxc_data, "Contact Acceleration")
+    # wbc.ErrorPlotting.plot_full_body_state(wbc.ErrorPlotting.ddq_diff_data, "Joint Accelerations")
+    # wbc.ErrorPlotting.plot_torque(wbc.ErrorPlotting.tau_data, "Joint Torques")
+    # plt.show()
 if __name__ == "__main__":
     # Create pipe
     parent_conn, child_conn = multiprocessing.Pipe()

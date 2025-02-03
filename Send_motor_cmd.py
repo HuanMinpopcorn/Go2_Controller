@@ -38,8 +38,6 @@ STAND_DOWN_JOINT_POS = np.array([
 
 class send_motor_commands():
     def __init__(self):
-        # ChannelFactoryInitialize(1, "lo")
-    
 
         self.low_cmd_pub = ChannelPublisher(TOPIC_LOWCMD, LowCmd_) 
         self.low_cmd_pub.Init()
@@ -65,12 +63,12 @@ class send_motor_commands():
             motor.tau = 0.0
         return cmd
 
-    def send_motor_commands(self, kp = 0, kd = 0,new_joint_angles=np.zeros(12), q_dot=np.zeros(12) , torque=np.zeros(12)):
+    def send_motor_commands(self, kp=0, kd=0, new_joint_angles=np.zeros(12), q_dot=np.zeros(12), torque=np.zeros(12)):
         """
         Send motor commands to the robot using the publisher.
         """
         for i in range(12):
-            self.cmd.motor_cmd[i].q  = new_joint_angles[i]
+            self.cmd.motor_cmd[i].q = new_joint_angles[i]
             self.cmd.motor_cmd[i].dq = q_dot[i]
             self.cmd.motor_cmd[i].kp = kp
             self.cmd.motor_cmd[i].kd = kd
@@ -80,41 +78,28 @@ class send_motor_commands():
         self.low_cmd_pub.Write(self.cmd)
         time.sleep(self.step_size)
 
-    def update_motor_commands(self):
-        """
-        Continuously update motor commands in a separate thread.
-        """
-        while True:
-            self.low_cmd_pub.Write(self.cmd)
-            time.sleep(self.step_size)
-
-    def move_to_initial_position(self, current_joint_angles = STAND_DOWN_JOINT_POS , target_joint_angles = STAND_UP_JOINT_POS):
+    def move_to_initial_position(self, current_joint_angles=STAND_DOWN_JOINT_POS, target_joint_angles=STAND_UP_JOINT_POS):
         """
         Smoothly transition to the initial standing position and maintain it.
         """
         print("Transitioning to initial position...")
-        # print("Press Ctrl+ C to enter Trot Gait ...")
-        print("waiting for 1.2 seconds...")
         running_time = 0.0
-        while True:
-            # Check if the robot is at the target body height
+        while running_time < 1.2:
+        # while True:
             running_time += self.step_size
             
             # Smoothly transition to the initial position
             phase = np.tanh(running_time / 1.2)
             for i in range(12):
-                self.cmd.motor_cmd[i].q = phase * target_joint_angles[i] + (
-                    1 - phase) * current_joint_angles[i]
+                self.cmd.motor_cmd[i].q = phase * target_joint_angles[i] + (1 - phase) * current_joint_angles[i]
                 self.cmd.motor_cmd[i].kp = phase * 50.0 + (1 - phase) * 20.0  # Gradual stiffness
                 self.cmd.motor_cmd[i].kd = 3.5
             
             self.cmd.crc = self.crc.Crc(self.cmd)
             self.low_cmd_pub.Write(self.cmd)
             time.sleep(self.step_size)
-            if running_time >= 1.2:
-                    break
-
-
+        
+        
 
 
 if __name__ == '__main__':
