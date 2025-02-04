@@ -1,5 +1,6 @@
 import numpy as np
 from scipy import sparse
+import time
 
 from Inverse_Kinematics import InverseKinematic
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
@@ -7,6 +8,7 @@ import osqp
 import mujoco
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+
 class InverseDynamic(InverseKinematic):
     def __init__(self):
         super().__init__()
@@ -21,10 +23,13 @@ class InverseDynamic(InverseKinematic):
         self.ddq_dim = self.model.nv   # Joint accelerations (DOFs)
 
         # Weight matrices for cost function
-        self.WF = sparse.csc_matrix(np.eye(self.F_dim) )  # Weight for contact forces
-        self.Wc = sparse.csc_matrix(np.eye(self.ddxc_dim))  # Weight for contact accelerations
-        self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim))  # Weight for joint accelerations
-
+        # self.WF = sparse.csc_matrix(np.eye(self.F_dim) *1000 )  # Weight for contact forces
+        # self.Wc = sparse.csc_matrix(np.eye(self.ddxc_dim)* 1000 )  # Weight for contact accelerations
+        # self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim)* 100)  # Weight for joint accelerations
+        # as phase = swing 
+        self.WF = sparse.csc_matrix(np.diag([5, 5, 0.5, 1, 1, 0.01]))  # Weight for contact forces
+        self.Wc = sparse.csc_matrix(np.diag([10^-3, 10^-3, 10^-3, 10^3, 10^3, 10^3]))  # Weight for contact accelerations
+        self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim)* 100)  # Weight for joint accelerations
         # Solver initialization
         self.prob = osqp.OSQP()
 
@@ -164,29 +169,36 @@ class InverseDynamic(InverseKinematic):
         
         self.ErrorPlotting.tau_data.append(self.tau)
         self.tau = np.linalg.pinv(S.T) @ (M @ (np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + ddq_sol) + B - self.J1.T @ Fc_sol)
-        # self.tau = np.clip(self.tau, self.tau_min, self.tau_max)
+        self.tau = np.clip(self.tau, self.tau_min, self.tau_max)
         
     def send_command_api(self):
         """
         Send the computed torques to the robot.
         """
         # print("Sending command API...")
-        ks = 1000000
+        ks = 10000
         dq_m = self.qd.reshape(-1,1) + self.tau.reshape(-1,1) / ks
         # print(dq_m.shape)
         self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(dq_m), self.change_q_order(self.dqd), self.change_q_order(self.tau))
+        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
     def send_command_ik(self):
         """
         Send the computed torques to the robot.
         """
         # print("Sending command API...")
-        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
-
+        M = np.zeros((self.model.nv, self.model.nv))
+        mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
+        B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
+        S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
+        self.tau = np.linalg.pinv(S.T) @ (M @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + B - self.data.qfrc_inverse.reshape(-1, 1))
+        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
+        self.ErrorPlotting.tau_data.append(self.tau)
     def ID_main(self):
         """
         Main function to run the inverse dynamics calculations.
         """
-        controller = "IK"
+        controller = "ID"
+        running_time = 5000
         self.start_joint_updates()
         self.cmd.move_to_initial_position()
         self.initialize()
@@ -195,10 +207,12 @@ class InverseDynamic(InverseKinematic):
         x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
         x_b_dot = self.compute_desired_body_state_velocity_trajectory()
         if controller == "IK":
-            for i in tqdm(range(5000)):
+            for i in tqdm(range(running_time)):
                 index = i % self.K -1
                 if index == 0:
+                    time.sleep(0.01)
                     self.transition_legs()
+                    # self.initialize()
                     x_sw = self.compute_desired_swing_leg_trajectory()
                     x_b = self.compute_desired_body_state() # update the body state for the next cycle
                     x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
@@ -208,9 +222,18 @@ class InverseDynamic(InverseKinematic):
             self.plot_error_ik()
             plt.show()
         else:
-            for i in tqdm(range(1000)):
+            for i in tqdm(range(running_time)):
             
-                self.calculate(x_sw, x_b, x_sw_dot, x_b_dot, i)
+                index = i % self.K -1
+                if index == 0:
+                    time.sleep(0.01)
+                    self.transition_legs()
+                    # self.initialize()
+                    x_sw = self.compute_desired_swing_leg_trajectory()
+                    x_b = self.compute_desired_body_state() # update the body state for the next cycle
+                    x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
+                    x_b_dot = self.compute_desired_body_state_velocity_trajectory()
+                self.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
                 self.compute_torque()
                 self.send_command_api()
             self.plot_error_ik()
@@ -239,12 +262,14 @@ class InverseDynamic(InverseKinematic):
                                                          self.ErrorPlotting.x3_data, 
                                                          self.ErrorPlotting.dx_sw_data, 
                                                          "Swing")
-        self.ErrorPlotting.plot_foot_location(
-                              self.ErrorPlotting.FL_position,   
-                              self.ErrorPlotting.FR_position, 
-                              self.ErrorPlotting.RL_position, 
-                              self.ErrorPlotting.RR_position, 
-                              "foot location") # FL, FR, RL, RR,
+        # self.ErrorPlotting.plot_foot_location(
+        #                       self.ErrorPlotting.FL_position,   
+        #                       self.ErrorPlotting.FR_position, 
+        #                       self.ErrorPlotting.RL_position, 
+        #                       self.ErrorPlotting.RR_position, 
+        #                       "foot location") # FL, FR, RL, RR,
+        self.ErrorPlotting.plot_torque(self.ErrorPlotting.tau_data,"joint toque IK")
+
     def plot_error_id(self):
         
         
@@ -259,10 +284,3 @@ if __name__ == "__main__":
    
     inv_dyn = InverseDynamic()
     inv_dyn.ID_main()
-    # inv_dyn.send_command_api()
-    # cmd.move_to_initial_position()
-    # inv_dyn.start_joint_updates()
-
-    # inv_dyn.compute_torque()
-    # inv_dyn.calculate()
-

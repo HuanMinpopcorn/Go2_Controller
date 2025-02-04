@@ -51,8 +51,8 @@ class InverseKinematic(ForwardKinematic):
         self.ErrorPlotting = ErrorPlotting()
 
         # intial the API gain 
-        self.kp = 400 
-        self.kd = 10
+        self.kp = 300
+        self.kd = 5
         # intial the gain for the body and swing leg
         self.kc = 1
         self.kb = 1
@@ -172,42 +172,24 @@ class InverseKinematic(ForwardKinematic):
         """
         Generate trajectories for the swing legs over the swing phase.
         """
-        # phase 0
-        #  self.swing_legs = ["FL_foot", "RR_foot"]
-        # self.contact_legs = ["FR_foot", "RL_foot"]
-        # print("Computing desired swing leg trajectories...")
         swing_leg_trajectory = []
-        contact_leg_trajectory = []
-        # swing_leg_positions_initial = self.get_required_state()["swing_leg"].copy()'
-        swing_leg_positions = np.copy(self.initial_swing_leg_positions)
-        contact_leg_positions = np.copy(self.initial_contact_leg_positions)
+        swing_leg_positions_initial = self.get_required_state()["swing_leg"].copy()
+        swing_leg_positions = np.copy(swing_leg_positions_initial)
         if self.phase == 0:
-        
-            for i in range(self.K):
-                for leg_index in range(len(self.swing_legs)):
-                    # swing_leg_positions[3 * leg_index + 0] = swing_leg_positions_initial[3 * leg_index + 0] + self.cubic_spline(i, self.K, self.velocity * self.swing_time)
-                    # swing_leg_positions[3 * leg_index + 1] = swing_leg_positions_initial[3 * leg_index + 1]  # Keep Y position constant
-                    # swing_leg_positions[3 * leg_index + 2] = swing_leg_positions_initial[3 * leg_index + 2] + self.swing_height * np.sin(np.pi * i / self.K)
-                    swing_leg_positions = np.copy(self.initial_swing_leg_positions)
-
-                swing_leg_trajectory.append(swing_leg_positions.copy())
-                self.ErrorPlotting.FL_position.append(self.initial_swing_leg_positions[0:3])
-                self.ErrorPlotting.RR_position.append(self.initial_swing_leg_positions[3:6])
-                self.ErrorPlotting.FR_position.append(self.initial_contact_leg_positions[0:3])
-                self.ErrorPlotting.RL_position.append(self.initial_contact_leg_positions[3:6])
-            
+            swing_leg_positions_initial = self.initial_swing_leg_positions
         else:
-            for i in range(self.K):
-                for leg_index in range(len(self.swing_legs)):
-                    swing_leg_positions = np.copy(self.initial_contact_leg_positions)
-                
-                swing_leg_trajectory.append(swing_leg_positions.copy())
-                self.ErrorPlotting.FL_position.append(self.initial_swing_leg_positions[0:3])
-                self.ErrorPlotting.RR_position.append(self.initial_swing_leg_positions[3:6])
-                self.ErrorPlotting.FR_position.append(self.initial_contact_leg_positions[0:3])
-                self.ErrorPlotting.RL_position.append(self.initial_contact_leg_positions[3:6])
+            swing_leg_positions_initial = self.initial_contact_leg_positions
+        
+        for i in range(self.K):
+            for leg_index in range(len(self.swing_legs)):
+                swing_leg_positions[3 * leg_index + 0] = swing_leg_positions_initial[3 * leg_index + 0] + self.cubic_spline(i, self.K, self.velocity * self.swing_time)
+                swing_leg_positions[3 * leg_index + 1] = swing_leg_positions_initial[3 * leg_index + 1]  # Keep Y position constant
+                swing_leg_positions[3 * leg_index + 2] = swing_leg_positions_initial[3 * leg_index + 2] + self.swing_height * np.sin(np.pi * i / self.K)
+
+            swing_leg_trajectory.append(swing_leg_positions.copy())
 
         return np.array(swing_leg_trajectory)
+
         
     def compute_desired_body_state_velocity_trajectory(self):
         body_velocity_trajectory = []
@@ -271,8 +253,8 @@ class InverseKinematic(ForwardKinematic):
         q3_dot = np.linalg.pinv(Jsw_bc, rcond=1e-6) @ (dx_sw - J3 @ q2_dot) # swing leg q_dot
         q1_dot = Nsw_bc @ (q_err - q2_dot - q3_dot)
 
-        # q_dot = q1_dot + q2_dot + q3_dot            # update dqd
-        q_dot = q1_dot + q2_dot 
+        q_dot = q1_dot + q2_dot + q3_dot            # update dqd
+        # q_dot = q1_dot + q2_dot 
         
         dq_cmd = q_dot[6:].flatten()                # shape (12, 1)
         new_joint_angles = joint_angles + dq_cmd    # update qd
@@ -366,17 +348,16 @@ class InverseKinematic(ForwardKinematic):
                                                             self.x1, self.x2, self.x3,
                                                             index, x_b_dot, x_sw_dot,joint_angles_velcity)
         
+   
         # self.qd = self.low_pass_filter(self.qd.reshape(-1, 1), self.previous_qd.reshape(-1, 1))
         # self.dqd = self.low_pass_filter(self.dqd.reshape(-1, 1), self.previous_dqd.reshape(-1, 1))
-        # print("qd", self.qd)
-        # print("dqd", self.dqd)
 
         dq_error = self.kp * (self.qd.reshape(-1, 1) - self.joint_angles.reshape(-1, 1))
         dq_dot_error = self.kd * ((self.dqd.reshape(-1, 1)) - self.joint_velocity.reshape(-1, 1))
         # print("dq_error", dq_error)
         # print("dq_dot_error", dq_dot_error)
         self.ddq_cmd = self.ddqd.reshape(-1, 1) + dq_error.reshape(-1, 1) + dq_dot_error.reshape(-1, 1)  # desired joint acceleration
-
+        self.ddq_cmd = self.low_pass_filter(self.ddq_cmd.reshape(-1, 1), self.previous_qd.reshape(-1, 1), 0.8)
         # get the desired q qdot qddot and current q, qdot 
         self.ErrorPlotting.q_desired_data.append(self.qd)
         self.ErrorPlotting.q_current_data.append(self.joint_angles)

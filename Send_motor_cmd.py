@@ -84,7 +84,7 @@ class send_motor_commands():
         """
         print("Transitioning to initial position...")
         running_time = 0.0
-        while running_time < 1.2:
+        while running_time < 2:
         # while True:
             running_time += self.step_size
             

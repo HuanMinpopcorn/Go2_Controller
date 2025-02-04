@@ -76,7 +76,7 @@ class ForwardKinematic:
             position = np.copy(self.data.xpos[body_id])
         else:
             position = np.copy(self.get_foot_position_in_hip_frame(body_id))
-        # position = np.copy(self.data.xpos[body_id])
+        position = np.copy(self.data.xpos[body_id])
         orientation_quat = np.copy(self.data.xquat[body_id])
         orientation = self.convert_quat_to_euler(orientation_quat)
 
