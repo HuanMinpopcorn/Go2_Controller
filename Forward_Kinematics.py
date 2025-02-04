@@ -202,7 +202,7 @@ class ForwardKinematic:
             mujoco.mj_comVel(self.model, self.data)
             mujoco.mj_inverse(self.model, self.data)
             mujoco.mj_collision(self.model, self.data)
-            # time.sleep(config.SIMULATE_DT)
+            time.sleep(config.SIMULATE_DT)
 
     def start_joint_updates(self):
         """Starts a background thread to continuously update joint angles."""

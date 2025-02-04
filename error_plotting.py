@@ -48,6 +48,14 @@ class ErrorPlotting:
         self.ddq_ik_data = []
         self.ddq_dik_data = []
 
+        self.index_data = []
+
+        self.FR_position = []   
+        self.FL_position = []
+        self.RR_position = []
+        self.RL_position = []
+
+
         
     @staticmethod
     def plot_state_trajectories(body_trajectory, swing_leg_trajectory):
@@ -263,4 +271,26 @@ class ErrorPlotting:
             plt.xlabel('Iteration')
             plt.ylabel(f'{label.capitalize()}')
             plt.legend()
-       
+    
+    def plot_index_data(self, index_data, title):
+        plt.figure(figsize=(12, 6))
+        plt.plot(index_data)
+        plt.title(f'{title} Over Time')
+        plt.xlabel('Iteration')
+        plt.ylabel('Index Value')
+        plt.legend(['Index'])
+
+    def plot_foot_location(self, FL, FR, RL, RR, title):
+        labels = ['x', 'y', 'z']
+        plt.figure(figsize=(12, 18))
+        
+        for i, label in enumerate(labels):
+            plt.subplot(len(labels), 1, i + 1)
+            plt.plot([data[i] for data in FL], label='FL_foot')
+            plt.plot([data[i] for data in FR], label='FR_foot')
+            plt.plot([data[i] for data in RL], label='RL_foot')
+            plt.plot([data[i] for data in RR], label='RR_foot')
+            plt.title(f'{title} {label.capitalize()} Over Time')
+            plt.xlabel('Iteration')
+            plt.ylabel(f'{label.capitalize()}')
+            plt.legend()

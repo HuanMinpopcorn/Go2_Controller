@@ -21,7 +21,7 @@ class InverseDynamic(InverseKinematic):
         self.ddq_dim = self.model.nv   # Joint accelerations (DOFs)
 
         # Weight matrices for cost function
-        self.WF = sparse.csc_matrix(np.eye(self.F_dim) * 1000)  # Weight for contact forces
+        self.WF = sparse.csc_matrix(np.eye(self.F_dim) )  # Weight for contact forces
         self.Wc = sparse.csc_matrix(np.eye(self.ddxc_dim))  # Weight for contact accelerations
         self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim))  # Weight for joint accelerations
 
@@ -171,8 +171,10 @@ class InverseDynamic(InverseKinematic):
         Send the computed torques to the robot.
         """
         # print("Sending command API...")
-   
-        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
+        ks = 1000000
+        dq_m = self.qd.reshape(-1,1) + self.tau.reshape(-1,1) / ks
+        # print(dq_m.shape)
+        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(dq_m), self.change_q_order(self.dqd), self.change_q_order(self.tau))
     def send_command_ik(self):
         """
         Send the computed torques to the robot.
@@ -186,16 +188,23 @@ class InverseDynamic(InverseKinematic):
         """
         controller = "IK"
         self.start_joint_updates()
-        # self.cmd.move_to_initial_position()
+        self.cmd.move_to_initial_position()
         self.initialize()
         x_sw = self.compute_desired_swing_leg_trajectory()
         x_b = self.compute_desired_body_state() # update the body state for the next cycle
         x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
         x_b_dot = self.compute_desired_body_state_velocity_trajectory()
         if controller == "IK":
-            for i in tqdm(range(1000)):
-                self.calculate(x_sw, x_b, x_sw_dot, x_b_dot, i)
-                # self.send_command_ik()
+            for i in tqdm(range(5000)):
+                index = i % self.K -1
+                if index == 0:
+                    self.transition_legs()
+                    x_sw = self.compute_desired_swing_leg_trajectory()
+                    x_b = self.compute_desired_body_state() # update the body state for the next cycle
+                    x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
+                    x_b_dot = self.compute_desired_body_state_velocity_trajectory()
+                self.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
+                self.send_command_ik()
             self.plot_error_ik()
             plt.show()
         else:
@@ -204,7 +213,9 @@ class InverseDynamic(InverseKinematic):
                 self.calculate(x_sw, x_b, x_sw_dot, x_b_dot, i)
                 self.compute_torque()
                 self.send_command_api()
+            self.plot_error_ik()
             self.plot_error_id()
+            plt.show()
 
     def plot_error_ik(self):
         self.ErrorPlotting.plot_q_error(self.ErrorPlotting.q_desired_data, 
@@ -228,7 +239,12 @@ class InverseDynamic(InverseKinematic):
                                                          self.ErrorPlotting.x3_data, 
                                                          self.ErrorPlotting.dx_sw_data, 
                                                          "Swing")
-        
+        self.ErrorPlotting.plot_foot_location(
+                              self.ErrorPlotting.FL_position,   
+                              self.ErrorPlotting.FR_position, 
+                              self.ErrorPlotting.RL_position, 
+                              self.ErrorPlotting.RR_position, 
+                              "foot location") # FL, FR, RL, RR,
     def plot_error_id(self):
         
         
