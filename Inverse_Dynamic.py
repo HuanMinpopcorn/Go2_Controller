@@ -173,26 +173,40 @@ class InverseDynamic(InverseKinematic):
         # print("Sending command API...")
    
         self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
+    def send_command_ik(self):
+        """
+        Send the computed torques to the robot.
+        """
+        # print("Sending command API...")
+        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
 
     def ID_main(self):
         """
         Main function to run the inverse dynamics calculations.
         """
+        controller = "IK"
         self.start_joint_updates()
-        self.cmd.move_to_initial_position()
+        # self.cmd.move_to_initial_position()
         self.initialize()
         x_sw = self.compute_desired_swing_leg_trajectory()
         x_b = self.compute_desired_body_state() # update the body state for the next cycle
         x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
         x_b_dot = self.compute_desired_body_state_velocity_trajectory()
-        for i in tqdm(range(1000)):
-        
-            self.calculate(x_sw, x_b, x_sw_dot, x_b_dot, i)
-            self.compute_torque()
-            self.send_command_api()
-        self.plot_error()
-        
-    def plot_error(self):
+        if controller == "IK":
+            for i in tqdm(range(1000)):
+                self.calculate(x_sw, x_b, x_sw_dot, x_b_dot, i)
+                # self.send_command_ik()
+            self.plot_error_ik()
+            plt.show()
+        else:
+            for i in tqdm(range(1000)):
+            
+                self.calculate(x_sw, x_b, x_sw_dot, x_b_dot, i)
+                self.compute_torque()
+                self.send_command_api()
+            self.plot_error_id()
+
+    def plot_error_ik(self):
         self.ErrorPlotting.plot_q_error(self.ErrorPlotting.q_desired_data, 
                                         self.ErrorPlotting.q_current_data,
                                         self.ErrorPlotting.q_error_data,
@@ -214,6 +228,9 @@ class InverseDynamic(InverseKinematic):
                                                          self.ErrorPlotting.x3_data, 
                                                          self.ErrorPlotting.dx_sw_data, 
                                                          "Swing")
+        
+    def plot_error_id(self):
+        
         
         self.ErrorPlotting.plot_torque(self.ErrorPlotting.tau_data,"joint toque")
         self.ErrorPlotting.plot_contact_acceleration(self.ErrorPlotting.ddxc_data, "contact foot acceleration")
