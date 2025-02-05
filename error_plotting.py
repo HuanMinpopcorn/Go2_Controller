@@ -55,6 +55,9 @@ class ErrorPlotting:
         self.RR_position = []
         self.RL_position = []
 
+        self.torque_sensor_data = []
+        
+
 
         
     @staticmethod

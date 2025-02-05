@@ -27,7 +27,7 @@ class InverseKinematic(ForwardKinematic):
         # running the FK
         # self.start_joint_updates()
         self.step_size = config.SIMULATE_DT
-        self.swing_time =  0.25 # 0.25 # Duration of swing phase
+        self.swing_time =  0.25 * 2 # 0.25 # Duration of swing phase
         self.K = int(self.swing_time / self.step_size)  # Number of steps for swing
 
         self.num_actuated_joints = self.model.nv - 6
@@ -36,7 +36,7 @@ class InverseKinematic(ForwardKinematic):
         self.body_height = 0.225 
         self.swing_height = 0.075
         # self.swing_height = 0.0
-        self.velocity = 0  # Forward velocity
+        self.velocity = 0.0 # Forward velocity
 
         # Initialize the leg positions
         self.world_frame_name = "world"
@@ -44,12 +44,11 @@ class InverseKinematic(ForwardKinematic):
         self.leg = ["FL_foot", "FR_foot", "RL_foot", "RR_foot"]
         self.swing_legs = ["FL_foot", "RR_foot"]
         self.contact_legs = ["FR_foot", "RL_foot"]
-        # self.swing_legs = ["RR_foot"]
-        # self.contact_legs = ["FL_foot", "FR_foot", "RL_foot"]
+   
         # Initialize the API
         self.cmd = send_motor_commands()
         self.ErrorPlotting = ErrorPlotting()
-
+       
         # intial the API gain 
         self.kp = 300
         self.kd = 5
@@ -59,13 +58,7 @@ class InverseKinematic(ForwardKinematic):
         self.ks = 1
 
         # intialize output for Inverse Dynamics shape (12, 1)
-        self.qd = np.zeros((12, 1))   
-        self.dqd = np.zeros((12, 1))
-        self.ddqd = np.zeros((12, 1))
-        self.ddq_cmd = np.zeros((12, 1))
- 
-        self.tau = np.zeros((12,1))
-        
+    
         self.previous_qd = np.zeros((12, 1))
         self.previous_dqd = np.zeros((12, 1))
         self.phase = 0
@@ -75,6 +68,14 @@ class InverseKinematic(ForwardKinematic):
         Initialize the robot state and joint angles.
         """
         # print("Initializing inverse kinematic parameter...")
+        self.qd = np.zeros((12, 1))   
+        self.dqd = np.zeros((12, 1))
+        self.ddqd = np.zeros((12, 1))
+        self.ddq_cmd = np.zeros((12, 1))
+ 
+        # self.tau = self.joint_toque.copy()
+        self.tau = np.zeros((12, 1))
+
         self.initial_joint_angles = self.joint_angles.copy()
         self.initial_joint_velocity = self.joint_velocity.copy()
 
@@ -377,7 +378,7 @@ class InverseKinematic(ForwardKinematic):
         """
         Swap the swing and contact legs for the next cycle.
         """
-       
+        time.sleep(0.01)
         self.swing_legs, self.contact_legs = self.contact_legs, self.swing_legs
         if self.phase == 0:
             self.phase = 1

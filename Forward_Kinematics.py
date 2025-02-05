@@ -194,6 +194,7 @@ class ForwardKinematic:
             self.imu_velocity = self.joint_state_reader.imu_gyroscope
             self.imu_acc = self.joint_state_reader.imu_accelerometer
 
+            
       
             self.set_joint_angles()
             self.run_fk()

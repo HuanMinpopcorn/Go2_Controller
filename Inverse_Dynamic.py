@@ -180,6 +180,8 @@ class InverseDynamic(InverseKinematic):
         dq_m = self.qd.reshape(-1,1) + self.tau.reshape(-1,1) / ks
         # print(dq_m.shape)
         self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(dq_m), self.change_q_order(self.dqd), self.change_q_order(self.tau))
+        
+        
         # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
     def send_command_ik(self):
         """
@@ -192,7 +194,7 @@ class InverseDynamic(InverseKinematic):
         S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
         self.tau = np.linalg.pinv(S.T) @ (M @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + B - self.data.qfrc_inverse.reshape(-1, 1))
         self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
-        self.ErrorPlotting.tau_data.append(self.tau)
+
     def ID_main(self):
         """
         Main function to run the inverse dynamics calculations.
@@ -210,7 +212,6 @@ class InverseDynamic(InverseKinematic):
             for i in tqdm(range(running_time)):
                 index = i % self.K -1
                 if index == 0:
-                    time.sleep(0.01)
                     self.transition_legs()
                     # self.initialize()
                     x_sw = self.compute_desired_swing_leg_trajectory()
@@ -223,10 +224,9 @@ class InverseDynamic(InverseKinematic):
             plt.show()
         else:
             for i in tqdm(range(running_time)):
-            
+                self.ErrorPlotting.torque_sensor_data.append(self.joint_toque)
                 index = i % self.K -1
                 if index == 0:
-                    time.sleep(0.01)
                     self.transition_legs()
                     # self.initialize()
                     x_sw = self.compute_desired_swing_leg_trajectory()
@@ -268,7 +268,7 @@ class InverseDynamic(InverseKinematic):
         #                       self.ErrorPlotting.RL_position, 
         #                       self.ErrorPlotting.RR_position, 
         #                       "foot location") # FL, FR, RL, RR,
-        self.ErrorPlotting.plot_torque(self.ErrorPlotting.tau_data,"joint toque IK")
+        # self.ErrorPlotting.plot_torque(self.ErrorPlotting.tau_data,"joint toque IK")
 
     def plot_error_id(self):
         
@@ -277,6 +277,9 @@ class InverseDynamic(InverseKinematic):
         self.ErrorPlotting.plot_contact_acceleration(self.ErrorPlotting.ddxc_data, "contact foot acceleration")
         self.ErrorPlotting.plot_contact_force(self.ErrorPlotting.Fc_data, "Fc")
         self.ErrorPlotting.plot_full_body_state(self.ErrorPlotting.ddq_diff_data, "ddq error")
+   
+        # self.ErrorPlotting.plot_torque(self.ErrorPlotting.output_data,"ctrl output")
+        self.ErrorPlotting.plot_torque(self.ErrorPlotting.torque_sensor_data,"joint toque sensor")
         plt.show()
 
 if __name__ == "__main__":
