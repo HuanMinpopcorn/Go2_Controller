@@ -4,7 +4,6 @@ from matplotlib.animation import FuncAnimation
 
 class ErrorPlotting:
     def __init__(self):
-
         # Data storage for plotting
         self.q_desired_data = []
         self.q_current_data = []
@@ -23,7 +22,6 @@ class ErrorPlotting:
         self.q_err_data = []
         self.q3_dot_data = []
 
-
         # Data storage for plotting
         self.xb_data = []
         self.x2_data = []
@@ -34,6 +32,17 @@ class ErrorPlotting:
         self.x3_data = []
         self.dx_sw_data = []
         self.q2_dot_data = []
+        
+
+        self.xb_dot_data = []
+        self.x2_dot_data = []
+        self.dx_b_dot_data = []
+
+        self.xw_dot_data = []
+        self.x3_dot_data = []
+        self.dx_sw_dot_data = []
+
+
 
         self.dq_cmd_data = []
         self.output_data = []
@@ -56,15 +65,11 @@ class ErrorPlotting:
         self.RL_position = []
 
         self.torque_sensor_data = []
-        
 
 
-        
+
     @staticmethod
     def plot_state_trajectories(body_trajectory, swing_leg_trajectory):
-        """
-        Plot the body and swing leg trajectories.
-        """
         plt.figure(figsize=(12, 6))
 
         plt.subplot(3, 1, 1)
@@ -73,6 +78,7 @@ class ErrorPlotting:
         plt.plot(body_trajectory[:, 2], label="Z")
         plt.title("Body Trajectory")
         plt.legend()
+        plt.grid(True)
 
         plt.subplot(4, 1, 2)
         plt.plot(swing_leg_trajectory[:, 0], label="X")
@@ -80,6 +86,7 @@ class ErrorPlotting:
         plt.plot(swing_leg_trajectory[:, 2], label="Z")
         plt.title("Front Swing Leg Trajectory")
         plt.legend()
+        plt.grid(True)
 
         plt.subplot(4, 1, 3)
         plt.plot(swing_leg_trajectory[:, 3], label="X")
@@ -87,18 +94,11 @@ class ErrorPlotting:
         plt.plot(swing_leg_trajectory[:, 5], label="Z")
         plt.title("Rear Swing Leg Trajectory")
         plt.legend()
+        plt.grid(True)
 
     @staticmethod
     def plot_q_error(q_desired, q_actual, q_error, title):
-        """
-        Plot the joint angles, desired joint angles, joint position error, and actuated joint angles.
-
-        Parameters:
-        q_desired (list): Desired joint angles, shape (N, num_joints).
-        q_actual (list): Actual joint angles, shape (N, num_joints).
-        """
         labels = ['FR_hip', 'FR_thigh', 'FR_calf', 'FL_hip', 'FL_thigh', 'FL_calf', 'RR_hip', 'RR_thigh', 'RR_calf', 'RL_hip', 'RL_thigh', 'RL_calf']
-        # print(f"q_desired second index length: {len(q_desired[1])}")
         plt.figure(figsize=(12, 18))
         plt.subplot(4, 1, 1)
         for joint in range(3):
@@ -107,6 +107,7 @@ class ErrorPlotting:
         plt.xlabel('Iteration')
         plt.ylabel(f'{title}')
         plt.legend()
+        plt.grid(True)
 
         plt.subplot(4, 1, 2)
         for joint in range(3, 6):
@@ -115,6 +116,7 @@ class ErrorPlotting:
         plt.xlabel('Iteration')
         plt.ylabel(f'{title}')
         plt.legend()
+        plt.grid(True)
 
         plt.subplot(4, 1, 3)
         for joint in range(6, 9):
@@ -123,6 +125,7 @@ class ErrorPlotting:
         plt.xlabel('Iteration')
         plt.ylabel(f'{title}')
         plt.legend()
+        plt.grid(True)
 
         plt.subplot(4, 1, 4)
         for joint in range(9, 12):
@@ -131,6 +134,7 @@ class ErrorPlotting:
         plt.xlabel('Iteration')
         plt.ylabel(f'{title}')
         plt.legend()
+        plt.grid(True)
 
     @staticmethod
     def plot_q_dot(q_dot, title):
@@ -144,6 +148,7 @@ class ErrorPlotting:
         plt.xlabel('Iteration')
         plt.ylabel('q_dot')
         plt.legend()
+        plt.grid(True)
 
         plt.subplot(4, 1, 2)
         for joint in range(3, 6):
@@ -152,6 +157,7 @@ class ErrorPlotting:
         plt.xlabel('Iteration')
         plt.ylabel('q_dot')
         plt.legend()
+        plt.grid(True)
 
         plt.subplot(4, 1, 3)
         for joint in range(6, 9):
@@ -160,6 +166,7 @@ class ErrorPlotting:
         plt.xlabel('Iteration')
         plt.ylabel('q_dot')
         plt.legend()
+        plt.grid(True)
 
         plt.subplot(4, 1, 4)
         for joint in range(9, 12):
@@ -168,6 +175,7 @@ class ErrorPlotting:
         plt.xlabel('Iteration')
         plt.ylabel('q_dot')
         plt.legend()
+        plt.grid(True)
 
     @staticmethod
     def plot_api_value(dq_error, dq_dot, output):
@@ -181,6 +189,7 @@ class ErrorPlotting:
         plt.title('dq_error Over Time')
         plt.xlabel('Iteration')
         plt.ylabel('dq_error')
+        plt.grid(True)
 
         plt.subplot(3, 1, 2)
         for joint in range(12):
@@ -189,6 +198,7 @@ class ErrorPlotting:
         plt.legend()
         plt.xlabel('Iteration')
         plt.ylabel('dq_dot')
+        plt.grid(True)
 
         plt.subplot(3, 1, 3)
         for joint in range(12):
@@ -197,22 +207,13 @@ class ErrorPlotting:
         plt.legend()
         plt.xlabel('Iteration')
         plt.ylabel('Output')
+        plt.grid(True)
 
     @staticmethod
     def plot_state_error_trajectories(desired_state, current_state, state_error, title):
-        """
-        Plot the desired state, current state, and state error trajectories.
-
-        Parameters:
-        desired_state (list): Desired state values over time.
-        current_state (list): Current state values over time.
-        state_error (list): State error values over time.
-        title (str): Title for the plot.
-        """
         if title == "Body":
             labels = ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
         else:
-            # labels = ['x_front', 'y_front', 'z_front']
             labels = ['x_front', 'y_front', 'z_front', 'x_rear', 'y_rear', 'z_rear']
         plt.figure(figsize=(12, 18))
 
@@ -220,12 +221,11 @@ class ErrorPlotting:
             plt.subplot(len(labels), 1, i + 1)
             plt.plot([data[i] for data in desired_state], label=f'desired_state[{label}]', linestyle='--')
             plt.plot([data[i] for data in current_state], label=f'current_state[{label}]', linestyle='-')
-            # plt.plot([data[i] for data in state_error], label=f'state_error[{label}]', linestyle='-.', color='red')
             plt.title(f'{title} {label.capitalize()} Over Time')
             plt.xlabel('Iteration')
             plt.ylabel(f'{label.capitalize()}')
             plt.legend()
-
+            plt.grid(True)
 
     def plot_contact_acceleration(self, ddxc, title):
         num_subplots = len(ddxc[0]) 
@@ -238,6 +238,7 @@ class ErrorPlotting:
             plt.xlabel('Iteration')
             plt.ylabel(f'ddxc[{i}]')
             plt.legend()
+            plt.grid(True)
 
     def plot_full_body_state(self, q_full, title):
         labels = ['x', 'y', 'z', 'roll', 'pitch', 'yaw', 'FR_hip', 'FR_thigh', 'FR_calf', 'FL_hip', 'FL_thigh', 'FL_calf', 'RR_hip', 'RR_thigh', 'RR_calf', 'RL_hip', 'RL_thigh', 'RL_calf']
@@ -250,6 +251,7 @@ class ErrorPlotting:
             plt.xlabel('Iteration')
             plt.ylabel(f'{label.capitalize()}')
             plt.legend()
+            plt.grid(True)
 
     def plot_contact_force(self, Fc, title):
         num_subplots = len(Fc[0])
@@ -262,6 +264,7 @@ class ErrorPlotting:
             plt.xlabel('Iteration')
             plt.ylabel(f'Fc[{i}]')
             plt.legend()
+            plt.grid(True)
 
     def plot_torque(self, tau, title):
         labels = ['FR_hip', 'FR_thigh', 'FR_calf', 'FL_hip', 'FL_thigh', 'FL_calf', 'RR_hip', 'RR_thigh', 'RR_calf', 'RL_hip', 'RL_thigh', 'RL_calf']
@@ -274,6 +277,7 @@ class ErrorPlotting:
             plt.xlabel('Iteration')
             plt.ylabel(f'{label.capitalize()}')
             plt.legend()
+            plt.grid(True)
     
     def plot_index_data(self, index_data, title):
         plt.figure(figsize=(12, 6))
@@ -282,6 +286,7 @@ class ErrorPlotting:
         plt.xlabel('Iteration')
         plt.ylabel('Index Value')
         plt.legend(['Index'])
+        plt.grid(True)
 
     def plot_foot_location(self, FL, FR, RL, RR, title):
         labels = ['x', 'y', 'z']
@@ -297,3 +302,4 @@ class ErrorPlotting:
             plt.xlabel('Iteration')
             plt.ylabel(f'{label.capitalize()}')
             plt.legend()
+            plt.grid(True)

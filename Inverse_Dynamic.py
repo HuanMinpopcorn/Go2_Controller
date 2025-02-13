@@ -3,33 +3,28 @@ from scipy import sparse
 import time
 
 from Inverse_Kinematics import InverseKinematic
-from unitree_sdk2py.core.channel import ChannelFactoryInitialize
+
 import osqp
 import mujoco
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 class InverseDynamic(InverseKinematic):
-    def __init__(self):
-        super().__init__()
+    def __init__(self,swing_legs, contact_legs):
+        super().__init__(swing_legs, contact_legs)
 
         self.mu = 0.6  # Friction coefficient
         self.F_z_max = 250.0  # Max contact force
         self.tau_min = -50.0  # Torque limits
         self.tau_max = 50.0
-
+        
+        self.WF = []
+        self.Wc = []
+        self.Wddq = []
+        
         self.F_dim = 3 * len(self.contact_legs)  # Number of contact forces
         self.ddxc_dim = 3 * len(self.contact_legs)  # Contact accelerations
         self.ddq_dim = self.model.nv   # Joint accelerations (DOFs)
-
-        # Weight matrices for cost function
-        # self.WF = sparse.csc_matrix(np.eye(self.F_dim) *1000 )  # Weight for contact forces
-        # self.Wc = sparse.csc_matrix(np.eye(self.ddxc_dim)* 1000 )  # Weight for contact accelerations
-        # self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim)* 100)  # Weight for joint accelerations
-        # as phase = swing 
-        self.WF = sparse.csc_matrix(np.diag([5, 5, 0.5, 1, 1, 0.01]))  # Weight for contact forces
-        self.Wc = sparse.csc_matrix(np.diag([10^-3, 10^-3, 10^-3, 10^3, 10^3, 10^3]))  # Weight for contact accelerations
-        self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim)* 100)  # Weight for joint accelerations
         # Solver initialization
         self.prob = osqp.OSQP()
 
@@ -39,7 +34,8 @@ class InverseDynamic(InverseKinematic):
         self.u = None  # Upper bounds
         self.P = None  # Hessian matrix
         self.q = None  # Gradient vector
-
+        self.start_joint_updates()
+        self.state_machine("double_standing")
 
     def whole_body_dynamics_constraint(self):
         """
@@ -168,7 +164,7 @@ class InverseDynamic(InverseKinematic):
         S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
         
         self.ErrorPlotting.tau_data.append(self.tau)
-        self.tau = np.linalg.pinv(S.T) @ (M @ (np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + ddq_sol) + B - self.J1.T @ Fc_sol)
+        self.tau = np.linalg.pinv(S).T @ (M @ (np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + ddq_sol) + B - self.J1.T @ Fc_sol)
         self.tau = np.clip(self.tau, self.tau_min, self.tau_max)
         
     def send_command_api(self):
@@ -194,51 +190,7 @@ class InverseDynamic(InverseKinematic):
         S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
         self.tau = np.linalg.pinv(S.T) @ (M @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + B - self.data.qfrc_inverse.reshape(-1, 1))
         self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
-
-    def ID_main(self):
-        """
-        Main function to run the inverse dynamics calculations.
-        """
-        controller = "ID"
-        running_time = 5000
-        self.start_joint_updates()
-        self.cmd.move_to_initial_position()
-        self.initialize()
-        x_sw = self.compute_desired_swing_leg_trajectory()
-        x_b = self.compute_desired_body_state() # update the body state for the next cycle
-        x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
-        x_b_dot = self.compute_desired_body_state_velocity_trajectory()
-        if controller == "IK":
-            for i in tqdm(range(running_time)):
-                index = i % self.K -1
-                if index == 0:
-                    self.transition_legs()
-                    # self.initialize()
-                    x_sw = self.compute_desired_swing_leg_trajectory()
-                    x_b = self.compute_desired_body_state() # update the body state for the next cycle
-                    x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
-                    x_b_dot = self.compute_desired_body_state_velocity_trajectory()
-                self.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
-                self.send_command_ik()
-            self.plot_error_ik()
-            plt.show()
-        else:
-            for i in tqdm(range(running_time)):
-                self.ErrorPlotting.torque_sensor_data.append(self.joint_toque)
-                index = i % self.K -1
-                if index == 0:
-                    self.transition_legs()
-                    # self.initialize()
-                    x_sw = self.compute_desired_swing_leg_trajectory()
-                    x_b = self.compute_desired_body_state() # update the body state for the next cycle
-                    x_sw_dot = self.compute_desired_swing_leg_velocity_trajectory()
-                    x_b_dot = self.compute_desired_body_state_velocity_trajectory()
-                self.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
-                self.compute_torque()
-                self.send_command_api()
-            self.plot_error_ik()
-            self.plot_error_id()
-            plt.show()
+    
 
     def plot_error_ik(self):
         self.ErrorPlotting.plot_q_error(self.ErrorPlotting.q_desired_data, 
@@ -262,28 +214,50 @@ class InverseDynamic(InverseKinematic):
                                                          self.ErrorPlotting.x3_data, 
                                                          self.ErrorPlotting.dx_sw_data, 
                                                          "Swing")
-        # self.ErrorPlotting.plot_foot_location(
-        #                       self.ErrorPlotting.FL_position,   
-        #                       self.ErrorPlotting.FR_position, 
-        #                       self.ErrorPlotting.RL_position, 
-        #                       self.ErrorPlotting.RR_position, 
-        #                       "foot location") # FL, FR, RL, RR,
+        self.ErrorPlotting.plot_foot_location(
+                              self.ErrorPlotting.FL_position,   
+                              self.ErrorPlotting.FR_position, 
+                              self.ErrorPlotting.RL_position, 
+                              self.ErrorPlotting.RR_position, 
+                              "foot location") # FL, FR, RL, RR,
         # self.ErrorPlotting.plot_torque(self.ErrorPlotting.tau_data,"joint toque IK")
 
     def plot_error_id(self):
         
-        
+        self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xb_dot_data, 
+                 self.ErrorPlotting.x2_dot_data,
+                 self.ErrorPlotting.dx_b_dot_data, 
+                 "Body Velocity.")
+        self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xw_dot_data, 
+                 self.ErrorPlotting.x3_dot_data, 
+                 self.ErrorPlotting.dx_sw_dot_data, 
+                 "Swing_Velocity .")
         self.ErrorPlotting.plot_torque(self.ErrorPlotting.tau_data,"joint toque")
         self.ErrorPlotting.plot_contact_acceleration(self.ErrorPlotting.ddxc_data, "contact foot acceleration")
         self.ErrorPlotting.plot_contact_force(self.ErrorPlotting.Fc_data, "Fc")
         self.ErrorPlotting.plot_full_body_state(self.ErrorPlotting.ddq_diff_data, "ddq error")
    
-        # self.ErrorPlotting.plot_torque(self.ErrorPlotting.output_data,"ctrl output")
         self.ErrorPlotting.plot_torque(self.ErrorPlotting.torque_sensor_data,"joint toque sensor")
         plt.show()
 
-if __name__ == "__main__":
-    ChannelFactoryInitialize(1, "lo")
+    def state_machine(self, phase):
+        if phase == "double_standing":
+            self.WF = sparse.csc_matrix(np.diag([5, 5, 0.5, 1, 1, 0.01]))
+            self.Wc = sparse.csc_matrix(np.diag([10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3]))
+            self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
+        elif phase == "transition":
+            self.WF = sparse.csc_matrix(np.diag([5, 5, 0.5, 1, 1, 0.01]))
+            self.Wc = sparse.csc_matrix(np.diag([10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3]))
+            self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
+        
+        elif phase == "swing":
+            self.WF = sparse.csc_matrix(np.diag([5, 5, 0.5, 1, 1, 0.01]))
+            self.Wc = sparse.csc_matrix(np.diag([10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3]))
+            self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
+        else:
+            raise ValueError("Invalid phase")
+# if __name__ == "__main__":
+#     ChannelFactoryInitialize(1, "lo")
    
-    inv_dyn = InverseDynamic()
-    inv_dyn.ID_main()
+#     inv_dyn = InverseDynamic()
+#     inv_dyn.ID_main()
