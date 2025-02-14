@@ -21,6 +21,7 @@ class InverseDynamic(InverseKinematic):
         self.WF = []
         self.Wc = []
         self.Wddq = []
+        self.ddq_cmd = np.zeros((self.model.nv - 6, 1))  # Initialize ddq_cmd
         
         self.F_dim = 3 * len(self.contact_legs)  # Number of contact forces
         self.ddxc_dim = 3 * len(self.contact_legs)  # Contact accelerations
@@ -35,7 +36,7 @@ class InverseDynamic(InverseKinematic):
         self.P = None  # Hessian matrix
         self.q = None  # Gradient vector
         self.start_joint_updates()
-        self.state_machine("double_standing")
+        self.state_machine("swing")
 
     def whole_body_dynamics_constraint(self):
         """
@@ -158,13 +159,19 @@ class InverseDynamic(InverseKinematic):
         """
         # print("Computing torques...")
         Fc_sol, ddxc_sol, ddq_sol = self.solve()
+        Fc_sol = Fc_sol.astype(np.float32)
+        ddxc_sol = ddxc_sol.astype(np.float32)
+        ddq_sol = ddq_sol.astype(np.float32)
+        if ddq_sol is None:
+            print("Warning: ddq_sol is None, skipping torque computation.")
+            return
         M = np.zeros((self.model.nv, self.model.nv))
         mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
         B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
         S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
-        
         self.ErrorPlotting.tau_data.append(self.tau)
-        self.tau = np.linalg.pinv(S).T @ (M @ (np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + ddq_sol) + B - self.J1.T @ Fc_sol)
+        # print(f"Fc_sol shape: {Fc_sol.shape}, ddxc_sol shape: {ddxc_sol.shape}, ddq_sol shape: {ddq_sol.shape}, M shape: {M.shape}, B shape: {B.shape}, S shape: {S.shape}")
+        self.tau = np.linalg.pinv(S.T) @ (M @ (np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + ddq_sol) + B - self.J1.T @ Fc_sol)
         self.tau = np.clip(self.tau, self.tau_min, self.tau_max)
         
     def send_command_api(self):
@@ -172,11 +179,12 @@ class InverseDynamic(InverseKinematic):
         Send the computed torques to the robot.
         """
         # print("Sending command API...")
-        ks = 10000
+        ks = 1000
         dq_m = self.qd.reshape(-1,1) + self.tau.reshape(-1,1) / ks
         # print(dq_m.shape)
         self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(dq_m), self.change_q_order(self.dqd), self.change_q_order(self.tau))
-        
+        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
+
         
         # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
     def send_command_ik(self):
@@ -246,12 +254,12 @@ class InverseDynamic(InverseKinematic):
             self.Wc = sparse.csc_matrix(np.diag([10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3]))
             self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
         elif phase == "transition":
-            self.WF = sparse.csc_matrix(np.diag([5, 5, 0.5, 1, 1, 0.01]))
+            self.WF = sparse.csc_matrix(np.diag([1, 1, 0.5, 1, 1, 0.01]))
             self.Wc = sparse.csc_matrix(np.diag([10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3]))
             self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
         
         elif phase == "swing":
-            self.WF = sparse.csc_matrix(np.diag([5, 5, 0.5, 1, 1, 0.01]))
+            self.WF = sparse.csc_matrix(np.diag([5, 5, 100, 1, 1, 0.01]))
             self.Wc = sparse.csc_matrix(np.diag([10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3]))
             self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
         else:

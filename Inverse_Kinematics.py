@@ -197,8 +197,8 @@ class InverseKinematic(ForwardKinematic):
         Jsw_bc = J3 @ Nb_c        
         Nsw_bc = Nb_c - np.linalg.pinv(Jsw_bc, rcond=1e-5) @ Jsw_bc
 
-        x2_dot = J2_dot @ self.data.qvel.copy()  # Body velocity
-        x3_dot = J3_dot @ self.data.qvel.copy() # Swing leg velocity
+        x2_dot = J2 @ self.data.qvel.copy()     # Body velocity
+        x3_dot = J3 @ self.data.qvel.copy()     # Swing leg velocity
 
         # Compute velocity error
         dx_b_dot = x_b_dot[i] - x2_dot  # Body velocity error
@@ -212,9 +212,11 @@ class InverseKinematic(ForwardKinematic):
         ddqd_desired = q1_ddot + q2_ddot + q3_ddot
 
         self.ErrorPlotting.xb_dot_data.append(x_b_dot[i])
+        self.ErrorPlotting.x2_dot_data.append(x2_dot.flatten())
         self.ErrorPlotting.dx_b_dot_data.append(dx_b_dot.flatten())
 
         self.ErrorPlotting.xw_dot_data.append(x_sw_dot[i])
+        self.ErrorPlotting.x3_dot_data.append(x3_dot.flatten())
         self.ErrorPlotting.dx_sw_dot_data.append(dx_sw_dot.flatten())
 
         return ddqd_desired[6:]  # Return only actuated joints (12x1)

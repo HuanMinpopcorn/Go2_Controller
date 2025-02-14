@@ -211,7 +211,7 @@ class ErrorPlotting:
 
     @staticmethod
     def plot_state_error_trajectories(desired_state, current_state, state_error, title):
-        if title == "Body":
+        if title == "Body" or "Body" in title:
             labels = ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
         else:
             labels = ['x_front', 'y_front', 'z_front', 'x_rear', 'y_rear', 'z_rear']
@@ -221,9 +221,11 @@ class ErrorPlotting:
             plt.subplot(len(labels), 1, i + 1)
             plt.plot([data[i] for data in desired_state], label=f'desired_state[{label}]', linestyle='--')
             plt.plot([data[i] for data in current_state], label=f'current_state[{label}]', linestyle='-')
+            plt.plot([data[i] for data in state_error], label=f'state_error[{label}]', linestyle='-.')
             plt.title(f'{title} {label.capitalize()} Over Time')
             plt.xlabel('Iteration')
             plt.ylabel(f'{label.capitalize()}')
+            plt.ylim([-1, 1])
             plt.legend()
             plt.grid(True)
 
@@ -296,8 +298,8 @@ class ErrorPlotting:
             plt.subplot(len(labels), 1, i + 1)
             plt.plot([data[i] for data in FL], label='FL_foot')
             plt.plot([data[i] for data in FR], label='FR_foot')
-            plt.plot([data[i] for data in RL], label='RL_foot')
-            plt.plot([data[i] for data in RR], label='RR_foot')
+            # plt.plot([data[i] for data in RL], label='RL_foot')
+            # plt.plot([data[i] for data in RR], label='RR_foot')
             plt.title(f'{title} {label.capitalize()} Over Time')
             plt.xlabel('Iteration')
             plt.ylabel(f'{label.capitalize()}')

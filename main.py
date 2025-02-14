@@ -11,6 +11,8 @@ from scipy import sparse
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 import Simulation.config as config
 from reference_trajectory import ReferenceTrajectory
+import time
+
 class WalkController:
     """
     This class orchestrates walking (or stepping) by calling the methods 
@@ -38,7 +40,7 @@ class WalkController:
         self.swing_phase = 0
 
         self.step_size = config.SIMULATE_DT
-        self.swing_time =  0.1   # 0.25 # Duration of swing phase
+        self.swing_time =  0.25/2  # 0.25 # Duration of swing phase
         self.K = int(self.swing_time / self.step_size)  # Number of steps for swing
        
 
@@ -46,10 +48,9 @@ class WalkController:
         self.body_height = 0.225 
         self.swing_height = 0.075
         # self.velocity = 0.02 # Forward velocity
-        self.velocity = -0.02 # Forward velocity
+        self.velocity = 0.005 # Forward velocity
 
         self.swing_legs = ["FL_foot", "RR_foot"]
-        
         self.contact_legs = ["FR_foot", "RL_foot"]
      
 
@@ -69,7 +70,7 @@ class WalkController:
         """
         # 1. Prepare and initialize
         # self.idc.start_joint_updates()
-        
+        # time.sleep(1)
         self.idc.cmd.move_to_initial_position()
         init_body,init_sw,init_contact,init_body_vel, init_sw_vel = self.idc.initialize()
         ref_traj = ReferenceTrajectory(init_body,init_sw,init_contact,init_body_vel, init_sw_vel,
@@ -78,8 +79,9 @@ class WalkController:
                                         self.swing_phase,self.walk_phase,self.swing_legs,self.contact_legs)
 
         # 2. Initialize the trajectory generator
-        x_b, x_sw, x_sw_dot, x_b_dot = ref_traj.get_trajectory(self.walk_phase)
-
+        x_b, x_sw, x_b_dot, x_sw_dot = ref_traj.get_trajectory(self.walk_phase)
+        # ref_traj.plot_trajectories(x_b, x_sw, x_b_dot, x_sw_dot)
+        # plt.show()
         # 3. Run the main loop
         if controller == "IK":
             for i in tqdm(range(running_time)):
@@ -87,15 +89,16 @@ class WalkController:
                 if index == 0:
                     ref_traj.transition_legs()
                     self.idc.transition_legs()
-                    x_b, x_sw, x_sw_dot, x_b_dot = ref_traj.get_trajectory(self.walk_phase)
-                
+                    x_b, x_sw, x_b_dot, x_sw_dot= ref_traj.get_trajectory(self.walk_phase)
+                    
                 # Compute inverse kinematics + update commands
                 self.idc.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
                 self.idc.send_command_ik()
 
             # Plot any IK-related errors
             self.idc.plot_error_ik()
-
+            # self.idc.plot_error_id()
+            plt.show()
         else:  # Use Inverse Dynamics
             for i in tqdm(range(running_time)):
                 self.idc.ErrorPlotting.torque_sensor_data.append(self.idc.joint_toque)
@@ -104,8 +107,8 @@ class WalkController:
                 if index == 0:
                     ref_traj.transition_legs()
                     self.idc.transition_legs()
-                    x_b, x_sw, x_sw_dot, x_b_dot = ref_traj.get_trajectory(self.walk_phase)
-                
+                    x_b, x_sw, x_b_dot, x_sw_dot = ref_traj.get_trajectory(self.walk_phase)
+            
                 # Calculate IK/ID references
                 self.idc.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
                 # Now compute ID torque and send to robot
@@ -122,4 +125,4 @@ class WalkController:
 if __name__ == "__main__":
     ChannelFactoryInitialize(1, "lo")
     wc = WalkController()
-    wc.walk(controller="IK", running_time=5000)
+    wc.walk(controller="ID", running_time=5000)
