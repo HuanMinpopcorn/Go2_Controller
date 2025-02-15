@@ -47,18 +47,6 @@ class ForwardKinematic:
         self.data.qvel[3:6] = self.imu_velocity
         self.data.qvel[6:19] = self.joint_velocity
         
-        
-
-
-    def run_fk(self):
-        """
-        Runs forward kinematics to update the robot's positions and orientations 
-        based on current joint angles. Provides debug output for the forward 
-        kinematics process and error checking.
-        """
-        # TODO: Run forward kinematics using MuJoCo
-        mujoco.mj_forward(self.model, self.data)
-      
 
     def get_body_state(self, body_name):
         """
@@ -197,12 +185,13 @@ class ForwardKinematic:
             
       
             self.set_joint_angles()
-            self.run_fk()
-            mujoco.mj_comPos(self.model, self.data) # Map inertias and motion dofs to global frame centered at CoM.
-            mujoco.mj_crb(self.model, self.data)# Run composite rigid body inertia algorithm (CRB).
+            mujoco.mj_forward(self.model, self.data)
+            # mujoco.mj_comPos(self.model, self.data) # Map inertias and motion dofs to global frame centered at CoM.
+            # mujoco.mj_crb(self.model, self.data)# Run composite rigid body inertia algorithm (CRB).
             mujoco.mj_comVel(self.model, self.data)
             mujoco.mj_inverse(self.model, self.data)
-            mujoco.mj_collision(self.model, self.data)
+            # mujoco.mj_collision(self.model, self.data)
+            
             time.sleep(config.SIMULATE_DT)
 
     def start_joint_updates(self):

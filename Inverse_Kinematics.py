@@ -177,7 +177,7 @@ class InverseKinematic(ForwardKinematic):
      
         return new_joint_angles, dq_cmd #Kinematic order 
     
-    def desired_joint_acceleration(self, J1, J2, J3, J1_dot, J2_dot, J3_dot, i, x_b_dot, x_sw_dot, joint_angles_velcity):
+    def desired_joint_acceleration(self, J1, J2, J3, i, x_b_dot, x_sw_dot, joint_angles_velcity):
         """
         Compute desired joint acceleration using KinWBC null-space projections
         Returns:
@@ -255,7 +255,7 @@ class InverseKinematic(ForwardKinematic):
                                                             index, joint_angles)
         
         self.ddqd = self.desired_joint_acceleration(self.J1, self.J2, self.J3,
-                                                            self.J1_dot, self.J2_dot, self.J3_dot,
+                                                            # self.J1_dot, self.J2_dot, self.J3_dot,
                                                             index, x_b_dot, x_sw_dot,joint_angles_velcity)
         
    

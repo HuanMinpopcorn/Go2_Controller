@@ -39,7 +39,7 @@ class WalkController:
         self.walk_phase = "double_standing" # intial phase
         self.swing_phase = 0
 
-        self.step_size = config.SIMULATE_DT
+        self.step_size = config.SIMULATE_DT * 10
         self.swing_time =  0.25/2  # 0.25 # Duration of swing phase
         self.K = int(self.swing_time / self.step_size)  # Number of steps for swing
        
@@ -70,7 +70,7 @@ class WalkController:
         """
         # 1. Prepare and initialize
         # self.idc.start_joint_updates()
-        # time.sleep(1)
+        # time.sleep(5)
         self.idc.cmd.move_to_initial_position()
         init_body,init_sw,init_contact,init_body_vel, init_sw_vel = self.idc.initialize()
         ref_traj = ReferenceTrajectory(init_body,init_sw,init_contact,init_body_vel, init_sw_vel,
@@ -80,8 +80,7 @@ class WalkController:
 
         # 2. Initialize the trajectory generator
         x_b, x_sw, x_b_dot, x_sw_dot = ref_traj.get_trajectory(self.walk_phase)
-        # ref_traj.plot_trajectories(x_b, x_sw, x_b_dot, x_sw_dot)
-        # plt.show()
+
         # 3. Run the main loop
         if controller == "IK":
             for i in tqdm(range(running_time)):
@@ -125,4 +124,4 @@ class WalkController:
 if __name__ == "__main__":
     ChannelFactoryInitialize(1, "lo")
     wc = WalkController()
-    wc.walk(controller="ID", running_time=5000)
+    wc.walk(controller="ID", running_time=500)

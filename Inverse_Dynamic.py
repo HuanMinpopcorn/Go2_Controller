@@ -22,10 +22,7 @@ class InverseDynamic(InverseKinematic):
         self.Wc = []
         self.Wddq = []
         self.ddq_cmd = np.zeros((self.model.nv - 6, 1))  # Initialize ddq_cmd
-        
-        self.F_dim = 3 * len(self.contact_legs)  # Number of contact forces
-        self.ddxc_dim = 3 * len(self.contact_legs)  # Contact accelerations
-        self.ddq_dim = self.model.nv   # Joint accelerations (DOFs)
+    
         # Solver initialization
         self.prob = osqp.OSQP()
 
@@ -36,8 +33,38 @@ class InverseDynamic(InverseKinematic):
         self.P = None  # Hessian matrix
         self.q = None  # Gradient vector
         self.start_joint_updates()
-        self.state_machine("swing")
+        
+    def contact_jacobian(self):
+        nv = self.model.nv
+        ncon = self.data.ncon
 
+        self.F_dim = 3 * ncon  # Number of contact forces
+        self.ddxc_dim = 3 * ncon  # Contact accelerations
+        self.ddq_dim = self.model.nv  # Joint accelerations (DOFs) 
+        self.number_of_contacts = ncon
+
+     
+        # Preallocate full contact Jacobian: 3 rows per contact
+        Jc = np.zeros((3 * ncon, nv))
+        Jc_dot = np.zeros((3 * ncon, nv))
+        # Determine the number of contacts
+        if ncon == 0:
+            print("No contact points detected.")
+            return np.zeros((0, nv)), np.zeros((0, nv))
+        elif ncon == 2:
+            self.state_machine("swing")
+            Jc = self.J1
+            Jc_dot = self.J1_dot
+        elif ncon == 4:
+            self.state_machine("transition")
+            Jc = np.vstack((self.J1, self.J3))
+            Jc_dot = np.vstack((self.J1_dot, self.J3_dot))
+
+        # get the contact Jacobian dot 
+
+        return Jc, Jc_dot
+
+    
     def whole_body_dynamics_constraint(self):
         """
         Formulate the whole-body dynamics constraints.
@@ -49,11 +76,15 @@ class InverseDynamic(InverseKinematic):
         mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
         B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
         S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
+
+        self.Jc, self.Jc_dot = self.contact_jacobian()
+      
+        
         # self.tau = np.linalg.pinv(S.T) @ (M @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + B - self.data.qfrc_inverse.reshape(-1, 1))
         tau_cmd = np.vstack((np.zeros((6, 1)), self.tau.reshape(-1, 1)))    
         # J_contact  
-        A1 = sparse.csc_matrix(-self.J1.T)  # Transposed contact Jacobian
-        A2 = sparse.csc_matrix((self.J1.shape[1], self.J1.shape[0]))  # Placeholder
+        A1 = sparse.csc_matrix(-self.Jc.T)  # Transposed contact Jacobian
+        A2 = sparse.csc_matrix((self.Jc.shape[1], self.Jc.shape[0]))  # Placeholder
         A3 = sparse.csc_matrix(M)  # Mass matrix in sparse format
         A_matrix = sparse.hstack([A1, A2, A3])  # Constraint matrix
         dynamics_u = tau_cmd - B - M @ np.vstack((np.zeros((6, 1)), self.ddq_cmd))  # Equality constraint RHS
@@ -67,12 +98,12 @@ class InverseDynamic(InverseKinematic):
         """
         # print("Formulating kinematic constraints...")
 
-        A1 = sparse.csc_matrix((self.F_dim, self.F_dim))  # Placeholder
+        A1 = sparse.csc_matrix(np.zeros((self.F_dim, self.F_dim)))  # Zero matrix
         A2 = sparse.csc_matrix(np.eye(self.ddxc_dim))  # Identity matrix
-        A3 = -self.J1  # Negative Jacobian
+        A3 = -self.Jc  # Negative Jacobian
         A_matrix = sparse.hstack([A1, A2, A3],format='csc')  # Constraint matrix
         # print(f"J_contact: {self.J_contact.shape}, ddq_dik: {self.ddq_dik.shape}, dJ_contact: {self.dJ_contact.shape}, qvel: {self.qvel.shape}")
-        l = self.J1 @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + self.J1_dot @ self.data.qvel.copy().reshape(-1,1)  # Lower bound
+        l = self.Jc @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + self.Jc_dot @ self.data.qvel.copy().reshape(-1,1)  # Lower bound
         u = l
         return A_matrix, l, u
 
@@ -87,10 +118,10 @@ class InverseDynamic(InverseKinematic):
             [0,  1, -self.mu],
             [0, -1, -self.mu]
         ])
-        S = sparse.block_diag([S_single] * len(self.contact_legs))
+        S = sparse.block_diag([S_single] * self.number_of_contacts)
         F_r_max = (np.ones(S.shape[0]) * self.F_z_max).reshape(-1, 1)
         A1 = sparse.csc_matrix(S)
-        A2 = sparse.csc_matrix((S.shape[0], self.ddxc_dim))
+        A2 = sparse.csc_matrix((S.shape[0], 3 * self.number_of_contacts))
         A3 = sparse.csc_matrix((S.shape[0], self.ddq_dim))
         A_react = sparse.hstack([A1, A2, A3],format='csc')
         l_react = -np.inf * np.ones(S.shape[0]).reshape(-1, 1)
@@ -101,7 +132,7 @@ class InverseDynamic(InverseKinematic):
         Fz_single = np.array([
             [0, 0,  1],     # -Fz ≤ 0 → Fz ≥ 0
         ])
-        Fz = sparse.block_diag([Fz_single] * len(self.contact_legs))
+        Fz = sparse.block_diag([Fz_single] * self.number_of_contacts)
 
         A1 = sparse.csc_matrix(Fz)
         A2 = sparse.csc_matrix((Fz.shape[0], self.ddxc_dim))
@@ -130,13 +161,15 @@ class InverseDynamic(InverseKinematic):
         self.A = sparse.vstack([A_dyn, A_react, A_contact, A_contact_force_dir])
         self.l = np.vstack([l_dyn, l_react, l_contact, l_contact_force_dir])
         self.u = np.vstack([u_dyn, u_react, u_contact, u_contact_force_dir])
-        #
+
+
     def solve(self):
         """
         Solve the optimization problem usinga OSQP.
         """
-        self.setup_cost_function()
+        
         self.combine_constraints()
+        self.setup_cost_function()
 
         self.prob = osqp.OSQP()
         # print(f"P shape: {self.P.shape}, q shape: {self.q.shape}, A shape: {self.A.shape}, l shape: {self.l.shape}, u shape: {self.u.shape}")
@@ -171,7 +204,7 @@ class InverseDynamic(InverseKinematic):
         S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
         self.ErrorPlotting.tau_data.append(self.tau)
         # print(f"Fc_sol shape: {Fc_sol.shape}, ddxc_sol shape: {ddxc_sol.shape}, ddq_sol shape: {ddq_sol.shape}, M shape: {M.shape}, B shape: {B.shape}, S shape: {S.shape}")
-        self.tau = np.linalg.pinv(S.T) @ (M @ (np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + ddq_sol) + B - self.J1.T @ Fc_sol)
+        self.tau = np.linalg.pinv(S.T) @ (M @ (np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + ddq_sol) + B - self.Jc.T @ Fc_sol)
         self.tau = np.clip(self.tau, self.tau_min, self.tau_max)
         
     def send_command_api(self):
@@ -254,8 +287,8 @@ class InverseDynamic(InverseKinematic):
             self.Wc = sparse.csc_matrix(np.diag([10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3]))
             self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
         elif phase == "transition":
-            self.WF = sparse.csc_matrix(np.diag([1, 1, 0.5, 1, 1, 0.01]))
-            self.Wc = sparse.csc_matrix(np.diag([10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3]))
+            self.WF = sparse.csc_matrix(np.diag([1, 1, 0.5, 1, 1, 0.01,1, 1, 0.5, 1, 1, 0.01]))
+            self.Wc = sparse.csc_matrix(np.diag([10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3, 10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3]))
             self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
         
         elif phase == "swing":
