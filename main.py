@@ -38,9 +38,9 @@ class WalkController:
         # walk_phase = ["double_standing", "transition", "swing"] 
         self.walk_phase = "double_standing" # intial phase
         self.swing_phase = 0
-
-        self.step_size = config.SIMULATE_DT * 10
-        self.swing_time =  0.25/2  # 0.25 # Duration of swing phase
+        # frequency 1kHZ 
+        self.step_size = 0.002 # 0.1 # Time step for simulation
+        self.swing_time =  0.25 # 0.25 # Duration of swing phase
         self.K = int(self.swing_time / self.step_size)  # Number of steps for swing
        
 
@@ -48,8 +48,13 @@ class WalkController:
         self.body_height = 0.225 
         self.swing_height = 0.075
         # self.velocity = 0.02 # Forward velocity
-        self.velocity = 0.005 # Forward velocity
+        self.velocity = {
+            'x': 0.0,  # Forward velocity
+            'y': 0.01,   # Lateral velocity
+            'theta': 0.0  # Rotational velocity
+        }
 
+        # intialize the swing legs and contact legs
         self.swing_legs = ["FL_foot", "RR_foot"]
         self.contact_legs = ["FR_foot", "RL_foot"]
      
@@ -106,6 +111,7 @@ class WalkController:
                 if index == 0:
                     ref_traj.transition_legs()
                     self.idc.transition_legs()
+                    # time.sleep(0.0001)
                     x_b, x_sw, x_b_dot, x_sw_dot = ref_traj.get_trajectory(self.walk_phase)
             
                 # Calculate IK/ID references
@@ -123,5 +129,11 @@ class WalkController:
 
 if __name__ == "__main__":
     ChannelFactoryInitialize(1, "lo")
+    # wc = WalkController()
+    # wc.walk(controller="IK", running_time=3500)
+    # plt.close()
+    # reset the simulation
+    # time.sleep(5)
     wc = WalkController()
-    wc.walk(controller="ID", running_time=500)
+    wc.walk(controller="ID", running_time=5000)
+    plt.close()

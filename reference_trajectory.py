@@ -27,7 +27,7 @@ class ReferenceTrajectory:
             initial_body_configuration (np.array): Initial [pos, orientation] or [x, y, z, ...] of the body.
             initial_swing_leg_positions (np.array): Initial foot positions of the swing legs.
             initial_contact_leg_positions (np.array): Initial foot positions of the contact legs.
-            velocity (float): Desired forward velocity (m/s).
+            velocity (dict): Desired velocities {'x': float, 'y': float, 'theta': float}.
             swing_height (float): Maximum foot swing height.
             swing_time (float): Duration of one swing phase (seconds).
             step_size (float): Simulation time step.
@@ -73,10 +73,16 @@ class ReferenceTrajectory:
         for i in range(self.K):
 
             # Create a new copy of the initial body configuration for each step
-            displacement = (self.velocity * i / self.K)
+            displacement_x = (self.velocity["x"] * i / self.K)
+            displacement_y = (self.velocity["y"] * i / self.K)
+            displacement_theta = (self.velocity["theta"] * i / self.K)
             # Example: only moving in X with a constant velocity over K steps
-            desired_body[0] = initial_body[0] + displacement
-            # desired_body[0] = initial_body[0] + displacement
+            desired_body[0] = initial_body[0] + displacement_x
+            desired_body[1] = initial_body[1] + displacement_y
+            desired_body[2] = initial_body[2]
+            desired_body[3] = initial_body[3]
+            desired_body[4] = initial_body[4]
+            desired_body[5] = initial_body[5] + displacement_theta
             # Append a copy to avoid modifying all previous elements
             body_moving_trajectory.append(desired_body.copy())
 
@@ -115,15 +121,11 @@ class ReferenceTrajectory:
             for leg_index in range(len(swing_legs)):
                 base_idx = 3 * leg_index
                 # X update
-                positions[base_idx + 0] = (
-                    init_positions[base_idx + 0] + (self.velocity * i / self.K) * 2
-                )
+                positions[base_idx + 0] = (init_positions[base_idx + 0] + (self.velocity["x"] * i / self.K) * 2)
                 # Y stays the same for this example
-                positions[base_idx + 1] = init_positions[base_idx + 1]
+                positions[base_idx + 1] = init_positions[base_idx + 1] + (self.velocity["y"] * i / self.K) * 2
                 # Z swing
-                positions[base_idx + 2] = (
-                    init_positions[base_idx + 2] + foot_traj_z
-                )
+                positions[base_idx + 2] = (init_positions[base_idx + 2] + foot_traj_z)
 
             swing_leg_trajectory.append(positions.copy())
 
@@ -149,7 +151,8 @@ class ReferenceTrajectory:
 
         # Example: we only increment vx by a constant value each step
         for _ in range(self.K):
-            desired_body_velocity[0] =  self.velocity
+            desired_body_velocity[0] =  self.velocity["x"]
+            desired_body_velocity[1] =  self.velocity["y"]
             # You can similarly update other velocity components if needed
             body_velocity_trajectory.append(desired_body_velocity.copy())
         # Update the stored “initial” body velocity for next time
@@ -175,9 +178,9 @@ class ReferenceTrajectory:
             # Add forward velocity to X
             for leg_index in range(len(swing_legs)):
                 base_idx = 3 * leg_index
-                swing_leg_velocity[base_idx + 0] = self.velocity * 2
+                swing_leg_velocity[base_idx + 0] = self.velocity["x"] * 2
                 # Y remains constant
-                swing_leg_velocity[base_idx + 1] = 0
+                swing_leg_velocity[base_idx + 1] = self.velocity["y"] * 2
                 # Z follows partial derivative of (1 - cos(...))^2 / 4 or your chosen swing formula
                 swing_leg_velocity[base_idx + 2] = foot_traj_deriv
 
@@ -260,6 +263,15 @@ class ReferenceTrajectory:
             plt.ylabel('Velocity')
             plt.legend()
 
+            # Plot swing leg Z positions vs Z velocities
+            plt.figure(figsize=(8, 6))
+            for i in range(swing_legs.shape[1] // 3):
+                plt.plot(swing_legs[:, 3*i+2], swing_leg_velocities[:, 3*i+2], label=f'Leg {i}')
+            plt.title('Swing Leg Z Positions vs Z Velocities')
+            plt.xlabel('Z Position')
+            plt.ylabel('Z Velocity')
+            plt.legend()
+            plt.grid(True)
             plt.tight_layout()
             
 

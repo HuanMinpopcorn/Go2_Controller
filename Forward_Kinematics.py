@@ -186,11 +186,12 @@ class ForwardKinematic:
       
             self.set_joint_angles()
             mujoco.mj_forward(self.model, self.data)
+            mujoco.mj_inverse(self.model, self.data)
             # mujoco.mj_comPos(self.model, self.data) # Map inertias and motion dofs to global frame centered at CoM.
             # mujoco.mj_crb(self.model, self.data)# Run composite rigid body inertia algorithm (CRB).
-            mujoco.mj_comVel(self.model, self.data)
-            mujoco.mj_inverse(self.model, self.data)
-            # mujoco.mj_collision(self.model, self.data)
+            # mujoco.mj_comVel(self.model, self.data)
+            
+            mujoco.mj_collision(self.model, self.data)
             
             time.sleep(config.SIMULATE_DT)
 
