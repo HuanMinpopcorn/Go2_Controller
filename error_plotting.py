@@ -102,7 +102,9 @@ class ErrorPlotting:
         plt.figure(figsize=(12, 18))
         plt.subplot(4, 1, 1)
         for joint in range(3):
-            plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
+            # plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
+            # plt.plot([qd[joint] for qd in q_actual], label=f'q_actual[{labels[joint]}]', linestyle='-')
+            plt.plot([qd[joint] for qd in q_error], label=f'q_error[{labels[joint]}]', linestyle='-.')
         plt.title(f'{title} Over Time')
         plt.xlabel('Iteration')
         plt.ylabel(f'{title}')
@@ -111,7 +113,9 @@ class ErrorPlotting:
 
         plt.subplot(4, 1, 2)
         for joint in range(3, 6):
-            plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
+            # plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
+            # plt.plot([qd[joint] for qd in q_actual], label=f'q_actual[{labels[joint]}]', linestyle='-')
+            plt.plot([qd[joint] for qd in q_error], label=f'q_error[{labels[joint]}]', linestyle='-.')
         plt.title(f'{title} Over Time')
         plt.xlabel('Iteration')
         plt.ylabel(f'{title}')
@@ -120,7 +124,9 @@ class ErrorPlotting:
 
         plt.subplot(4, 1, 3)
         for joint in range(6, 9):
-            plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
+            # plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
+            # plt.plot([qd[joint] for qd in q_actual], label=f'q_actual[{labels[joint]}]', linestyle='-')
+            plt.plot([qd[joint] for qd in q_error], label=f'q_error[{labels[joint]}]', linestyle='-.')
         plt.title(f'{title} Over Time')
         plt.xlabel('Iteration')
         plt.ylabel(f'{title}')
@@ -129,7 +135,10 @@ class ErrorPlotting:
 
         plt.subplot(4, 1, 4)
         for joint in range(9, 12):
-            plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
+            # plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
+            # plt.plot([qd[joint] for qd in q_actual], label=f'q_actual[{labels[joint]}]', linestyle='-')
+            plt.plot([qd[joint] for qd in q_error], label=f'q_error[{labels[joint]}]', linestyle='-.')
+            # plt.plot([qd[joint] for qd in q_desired], label=f'q_desired[{labels[joint]}]', linestyle='--')
         plt.title(f'{title} Over Time')
         plt.xlabel('Iteration')
         plt.ylabel(f'{title}')
@@ -221,11 +230,11 @@ class ErrorPlotting:
             plt.subplot(len(labels), 1, i + 1)
             plt.plot([data[i] for data in desired_state], label=f'desired_state[{label}]', linestyle='--')
             plt.plot([data[i] for data in current_state], label=f'current_state[{label}]', linestyle='-')
-            plt.plot([data[i] for data in state_error], label=f'state_error[{label}]', linestyle='-.')
+            # plt.plot([data[i] for data in state_error], label=f'state_error[{label}]', linestyle='-.')
             plt.title(f'{title} {label.capitalize()} Over Time')
             plt.xlabel('Iteration')
             plt.ylabel(f'{label.capitalize()}')
-            plt.ylim([-1, 1])
+            plt.ylim([-.2, 0.2])
             plt.legend()
             plt.grid(True)
 

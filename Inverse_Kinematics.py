@@ -35,7 +35,7 @@ class InverseKinematic(ForwardKinematic):
         self.ErrorPlotting = ErrorPlotting()
 
         # intial the API gain 
-        self.kp = 300
+        self.kp = 250
         self.kd = 8
         self.swing_phase = 0
         self.walk_phase = "double_standing" # intial phase
@@ -197,16 +197,22 @@ class InverseKinematic(ForwardKinematic):
         Jsw_bc = J3 @ Nb_c        
         Nsw_bc = Nb_c - np.linalg.pinv(Jsw_bc, rcond=1e-5) @ Jsw_bc
 
-        x2_dot = J2 @ self.data.qvel.copy()     # Body velocity
-        x3_dot = J3 @ self.data.qvel.copy()     # Swing leg velocity
+        # Compute body and swing leg velocities
+        full_q_velocity = np.zeros(self.model.nv)
+
+        full_q_velocity[:3] = np.array(self.robot_velocity).reshape(-1)
+        full_q_velocity[3:6] = np.array(self.body_angular_velocity).reshape(-1)
+        full_q_velocity[6:18] = np.array(joint_angles_velcity).reshape(-1)
+        x2_dot = J2 @ full_q_velocity     # Body velocity
+        x3_dot = J3 @ full_q_velocity     # Swing leg velocity
 
         # Compute velocity error
         dx_b_dot = x_b_dot[i] - x2_dot  # Body velocity error
         dx_sw_dot = x_sw_dot[i] - x3_dot  # Swing leg velocity error
 
-        J1_dotq = J1_dot @ self.data.qvel.copy()
-        J2_dotq = J2_dot @ self.data.qvel.copy()
-        J3_dotq = J3_dot @ self.data.qvel.copy()
+        J1_dotq = J1_dot @ full_q_velocity
+        J2_dotq = J2_dot @ full_q_velocity
+        J3_dotq = J3_dot @ full_q_velocity
 
         # \delta q_dot =  J(xdot_des - xdot) - J_dot * q_dot
         # Compute desired joint acceleration
@@ -270,15 +276,8 @@ class InverseKinematic(ForwardKinematic):
         # print("dq_error", dq_error)
         # print("dq_dot_error", dq_dot_error)
         self.ddq_cmd = self.ddqd.reshape(-1, 1) + dq_error.reshape(-1, 1) + dq_dot_error.reshape(-1, 1)  # desired joint acceleration
-        self.ddq_cmd = self.low_pass_filter(self.ddq_cmd.reshape(-1, 1), self.previous_qd.reshape(-1, 1), 0.8)
         
-        # initialize the joint torque
-        M = np.zeros((self.model.nv, self.model.nv))
-        mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
-        B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
-        S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
-        self.tau = np.linalg.pinv(S.T) @ (M @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + B - self.data.qfrc_inverse.reshape(-1, 1))
-        # self.tau = self.joint_toque.copy()
+       
         
         # get the desired q qdot qddot and current q, qdot 
         self.ErrorPlotting.q_desired_data.append(self.qd)
@@ -297,8 +296,21 @@ class InverseKinematic(ForwardKinematic):
         self.ErrorPlotting.FR_position.append(self.get_body_state("FR_foot")["position"])
         self.ErrorPlotting.RL_position.append(self.get_body_state("RL_foot")["position"])
         self.ErrorPlotting.RR_position.append(self.get_body_state("RR_foot")["position"])
-       
- 
+
+        return self.qd, self.dqd, self.ddqd, self.ddq_cmd
+    def send_command_ik(self):
+        """
+        Send the computed torques to the robot.
+        """
+        # print("Sending command API...")
+        M = np.zeros((self.model.nv, self.model.nv))
+        mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
+        B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
+        S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
+        self.tau = np.linalg.pinv(S.T) @ (M @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + B - self.data.qfrc_inverse.reshape(-1, 1))
+        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
+        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
+
             
  
     def change_q_order(self, q):
@@ -310,9 +322,6 @@ class InverseKinematic(ForwardKinematic):
                 q[3], q[4], q[5], q[0], q[1], q[2], q[9], q[10], q[11], q[6], q[7], q[8]
             ]
         )
-
-    def low_pass_filter(self, current, previous, alpha=0.2):
-        return alpha * current + (1 - alpha) * previous
 
     def transition_legs(self):
         """
@@ -346,12 +355,12 @@ class InverseKinematic(ForwardKinematic):
                                                          self.ErrorPlotting.x3_data, 
                                                          self.ErrorPlotting.dx_sw_data, 
                                                          "Swing")
-        # self.ErrorPlotting.plot_foot_location(
-        #                       self.ErrorPlotting.FL_position,   
-        #                       self.ErrorPlotting.FR_position, 
-        #                       self.ErrorPlotting.RL_position, 
-        #                       self.ErrorPlotting.RR_position, 
-        #                       "foot location") # FL, FR, RL, RR,
+        self.ErrorPlotting.plot_foot_location(
+                              self.ErrorPlotting.FL_position,   
+                              self.ErrorPlotting.FR_position, 
+                              self.ErrorPlotting.RL_position, 
+                              self.ErrorPlotting.RR_position, 
+                              "foot location") # FL, FR, RL, RR,
         # self.ErrorPlotting.plot_torque(self.ErrorPlotting.tau_data,"joint toque IK")
         self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xb_dot_data, 
                  self.ErrorPlotting.x2_dot_data,
@@ -361,3 +370,7 @@ class InverseKinematic(ForwardKinematic):
                  self.ErrorPlotting.x3_dot_data, 
                  self.ErrorPlotting.dx_sw_dot_data, 
                  "Swing_Velocity .")
+        
+        # plot the command output 
+        # self.ErrorPlotting.plot_api_value()
+

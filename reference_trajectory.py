@@ -18,7 +18,6 @@ class ReferenceTrajectory:
         step_size,
         K,
         swing_phase,
-        walk_phase,
         swing_legs,
         contact_legs,
     ):
@@ -48,7 +47,7 @@ class ReferenceTrajectory:
         self.swing_phase = swing_phase
         self.swing_legs = swing_legs 
         self.contact_legs = contact_legs
-        self.walk_phase = walk_phase
+
 
         # Compute the total number of trajectory points per swing phase
         self.K = K
@@ -57,8 +56,70 @@ class ReferenceTrajectory:
         self.updated_body_configuration = np.copy(self.initial_body_configuration)
         self.updated_swing_leg_positions = np.copy(self.initial_swing_leg_positions)
         self.updated_contact_leg_positions = np.copy(self.initial_contact_leg_positions)
+    
+    def foot_trajectory(self, i):
+        """Calculate foot trajectory and its derivative for swing phase"""
+        # Common parameters
+        t = i / self.K  # Normalized time [0, 1]
+        omega = 2 * np.pi / self.K  # Angular frequency
+        
+        # Select trajectory type (make this a class parameter if needed)
+        trajectory_type = 1  # 1=parabola, 2=sinusoidal, 3=elliptical
+        
+        if trajectory_type == 1:
+            # Parabolic trajectory (smooth start/stop)
+            x = self.velocity["x"] * t * 2
+            y = self.velocity["y"] * t * 2
+            z = self.swing_height * (1 - np.cos(omega * i)) ** 2 / 4
+
+            dx_dt = self.velocity["x"] * 2
+            dy_dt = self.velocity["y"] * 2
+            dz_dt = self.swing_height * omega * np.sin(omega * i) * (1 - np.cos(omega * i))
 
 
+        elif trajectory_type == 2:
+            # Sinusoidal trajectory (symmetric)
+            foot_traj_z = self.swing_height * np.sin(np.pi * t)
+            foot_traj_deriv = self.swing_height * np.pi * np.cos(np.pi * t) / self.K
+            
+        elif trajectory_type == 3:
+            # Elliptical trajectory (parametric form)
+            #(x,y) = (a*cos(t), b*sin(t))
+            theta = np.pi * t  # Parameter from 0 to π
+            # Ellipse parameters
+            a_x = self.swing_time * abs(self.velocity["x"])/2  # Semi-major axis (forward motion)
+            a_y = self.swing_time * abs(self.velocity["y"])/2  # Semi-major axis (forward motion)
+            b = self.swing_height  # Semi-minor axis (vertical motion)
+            
+            # Position components (parametric equations)
+            x = a_x * (1 - np.cos(theta))  # Forward displacement
+            y = a_y * (1 - np.cos(theta))  # Lateral displacement
+            z = b * np.sin(theta)           # Vertical displacement
+            
+            # Velocity components (derivatives w.r.t. time)
+            dx_dt = a_x * np.sin(theta) * (np.pi )
+            dy_dt = a_y * np.sin(theta) * (np.pi)
+            dz_dt = b * np.cos(theta) * (np.pi )
+                    
+        else:
+            raise ValueError("Invalid trajectory type")
+
+        return np.array([x, y, z]), np.array([dx_dt, dy_dt, dz_dt])
+        
+    def rotation_matrix(self, theta):
+        """
+        Generate a rotation matrix for a given angle theta.
+        Args:
+            theta (float): Angle in radians.
+
+        Returns:
+            np.array: 3x3 rotation matrix.
+        """
+        return np.array([
+            [np.cos(theta), -np.sin(theta), 0],
+            [np.sin(theta), np.cos(theta), 0],
+            [0, 0, 1]
+        ], dtype=np.float64)  
     def compute_desired_body_state(self):
         """
         Generate a trajectory for the body (position/orientation) over the swing phase.
@@ -70,7 +131,7 @@ class ReferenceTrajectory:
         initial_body = np.copy(self.updated_body_configuration)
         desired_body = np.copy(initial_body)
 
-        for i in range(self.K):
+        for i in range(1, self.K + 1):
 
             # Create a new copy of the initial body configuration for each step
             displacement_x = (self.velocity["x"] * i / self.K)
@@ -104,29 +165,37 @@ class ReferenceTrajectory:
         """
         swing_leg_trajectory = []
 
-        # Decide which set of initial leg positions to use depending on phase
+        # Initialize positions based on phase
         if self.swing_phase == 0:
             init_positions = np.copy(self.updated_swing_leg_positions)
         else:
             init_positions = np.copy(self.updated_contact_leg_positions)
 
-        # For each step in the swing, compute foot trajectory
-        for i in range(self.K):
-            # Customize this foot trajectory formula as desired
-            # Example: simple parabola via (1 - cos(...))**2
-            # Scaling by some factor (e.g., /4) is optional if you want a smaller arc
-            foot_traj_z = self.swing_height * 1/4 * (1 - np.cos(2 * np.pi * i / self.K)) ** 2 
+        for i in range(1, self.K + 1):
+            # Get swing trajectory components
+            foot_displacement, _ = self.foot_trajectory(i)  # Fixed tuple unpacking
+            
+            # Calculate accumulated rotation
+            theta = self.velocity["theta"] * i * self.step_size
+            rot_mat = self.rotation_matrix(theta)
+            
+            # Calculate body displacement
+            dx_body = foot_displacement[0]
+            dy_body = foot_displacement[1]
+            dz_body = foot_displacement[2]
 
             positions = np.copy(init_positions)
+            
             for leg_index in range(len(swing_legs)):
                 base_idx = 3 * leg_index
-                # X update
-                positions[base_idx + 0] = (init_positions[base_idx + 0] + (self.velocity["x"] * i / self.K) * 2)
-                # Y stays the same for this example
-                positions[base_idx + 1] = init_positions[base_idx + 1] + (self.velocity["y"] * i / self.K) * 2
-                # Z swing
-                positions[base_idx + 2] = (init_positions[base_idx + 2] + foot_traj_z)
 
+                # Get initial positions from body frame
+                positions[base_idx] = init_positions[base_idx] + dx_body
+                positions[base_idx + 1] = init_positions[base_idx + 1] + dy_body
+                positions[base_idx + 2] = init_positions[base_idx + 2] + dz_body
+                # positions[base_idx] =  dx_body
+                # positions[base_idx + 1] = dy_body
+                # positions[base_idx + 2] = dz_body
             swing_leg_trajectory.append(positions.copy())
 
         # Update the “initial” positions for next cycle
@@ -150,9 +219,13 @@ class ReferenceTrajectory:
         desired_body_velocity = np.copy(self.initial_body_velocity)
 
         # Example: we only increment vx by a constant value each step
-        for _ in range(self.K):
+        for i in range(1, self.K + 1):
             desired_body_velocity[0] =  self.velocity["x"]
             desired_body_velocity[1] =  self.velocity["y"]
+            desired_body_velocity[2] = 0.0
+            desired_body_velocity[3] = 0.0
+            desired_body_velocity[4] = 0.0
+            desired_body_velocity[5] = self.velocity["theta"]
             # You can similarly update other velocity components if needed
             body_velocity_trajectory.append(desired_body_velocity.copy())
         # Update the stored “initial” body velocity for next time
@@ -161,36 +234,38 @@ class ReferenceTrajectory:
 
     def compute_desired_swing_leg_velocity_trajectory(self, swing_legs):
         """
-        Generate velocity references for the swing legs over the swing phase.
-        Args:
-            swing_legs (list): List of swing-leg frames.
-
+        Generate velocity references for swing legs including rotational effects.
         Returns:
-            np.array: Velocity trajectory of shape [K, 3*len(swing_legs)].
+            np.array: Velocity trajectory [K, 3*len(swing_legs)] with shape (steps, 3*num_legs)
         """
         swing_leg_velocity_trajectory = []
-
         swing_leg_velocity = np.copy(self.initial_swing_leg_velocity)
-        for i in range(self.K):
-            # Example derivative for foot’s Z-motion
-            foot_traj_deriv =  self.swing_height * (np.pi / self.K) * np.sin(2 * np.pi * i / self.K) * (1 - np.cos(2 * np.pi * i / self.K))
 
-            # Add forward velocity to X
+        for i in range(1, self.K + 1):
+            # Get foot trajectory derivatives
+            _, foot_traj_deriv = self.foot_trajectory(i)
+            
+            # Calculate accumulated rotation angle
+            theta = self.velocity["theta"] * i * self.step_size
+            
             for leg_index in range(len(swing_legs)):
                 base_idx = 3 * leg_index
-                swing_leg_velocity[base_idx + 0] = self.velocity["x"] * 2
-                # Y remains constant
-                swing_leg_velocity[base_idx + 1] = self.velocity["y"] * 2
-                # Z follows partial derivative of (1 - cos(...))^2 / 4 or your chosen swing formula
-                swing_leg_velocity[base_idx + 2] = foot_traj_deriv
+                
+                # # Calculate body displacement in body frame
+                dx_body = foot_traj_deriv[0]
+                dy_body = foot_traj_deriv[1]
+                dz_body = foot_traj_deriv[2]
+                swing_leg_velocity[base_idx + 0] = dx_body
+                swing_leg_velocity[base_idx + 1] = dy_body
+                swing_leg_velocity[base_idx + 2] = dz_body
+        
 
             swing_leg_velocity_trajectory.append(swing_leg_velocity.copy())
 
-        # Update the stored “initial” swing-leg velocity for next time
         self.initial_swing_leg_velocity = swing_leg_velocity_trajectory[-1]
         return np.array(swing_leg_velocity_trajectory)
-    
-    def get_trajectory(self, walking_phase):
+        
+    def get_trajectory(self):
         """
         Demonstration of how to use the reference trajectories.
         """
@@ -216,20 +291,20 @@ class ReferenceTrajectory:
             """
             Plot all the computed trajectories for visualization purposes.
             """
-          
-
-            
-            
-            # Plot desired body positions
+            # Plot desired body positions and orientations
             plt.figure(figsize=(12, 8))
             plt.subplot(2, 2, 1)
             plt.plot(body_positions[:, 0], label='X')
             plt.plot(body_positions[:, 1], label='Y')
             plt.plot(body_positions[:, 2], label='Z')
-            plt.title('Desired Body Positions')
+            plt.plot(body_positions[:, 3], label='Roll')
+            plt.plot(body_positions[:, 4], label='Pitch')
+            plt.plot(body_positions[:, 5], label='Yaw')
+            plt.title('Desired Body Positions and Orientations')
             plt.xlabel('Time Step')
-            plt.ylabel('Position')
+            plt.ylabel('Position/Orientation')
             plt.legend()
+            plt.grid(True)
 
             # Plot desired swing leg positions
             plt.subplot(2, 2, 2)
@@ -241,16 +316,21 @@ class ReferenceTrajectory:
             plt.xlabel('Time Step')
             plt.ylabel('Position')
             plt.legend()
+            plt.grid(True)
 
             # Plot desired body velocities
             plt.subplot(2, 2, 3)
             plt.plot(body_velocities[:, 0], label='Vx')
             plt.plot(body_velocities[:, 1], label='Vy')
             plt.plot(body_velocities[:, 2], label='Vz')
+            plt.plot(body_velocities[:, 3], label='Roll Rate')
+            plt.plot(body_velocities[:, 4], label='Pitch Rate')
+            plt.plot(body_velocities[:, 5], label='Yaw Rate')
             plt.title('Desired Body Velocities')
             plt.xlabel('Time Step')
             plt.ylabel('Velocity')
             plt.legend()
+            plt.grid(True)
 
             # Plot desired swing leg velocities
             plt.subplot(2, 2, 4)
@@ -262,18 +342,19 @@ class ReferenceTrajectory:
             plt.xlabel('Time Step')
             plt.ylabel('Velocity')
             plt.legend()
+            plt.grid(True)
 
-            # Plot swing leg Z positions vs Z velocities
+            # Plot swing leg X positions vs Z positions
             plt.figure(figsize=(8, 6))
             for i in range(swing_legs.shape[1] // 3):
-                plt.plot(swing_legs[:, 3*i+2], swing_leg_velocities[:, 3*i+2], label=f'Leg {i}')
-            plt.title('Swing Leg Z Positions vs Z Velocities')
-            plt.xlabel('Z Position')
-            plt.ylabel('Z Velocity')
+                plt.plot(swing_legs[:, 3*i], swing_legs[:, 3*i+2], label=f'Leg {i}')
+            plt.title('Swing Leg X Positions vs Z Positions')
+            plt.xlabel('X Position')
+            plt.ylabel('Z Position')
+            plt.ylim([0,1])
             plt.legend()
             plt.grid(True)
             plt.tight_layout()
-            
 
 
 if __name__ == "__main__":
@@ -281,11 +362,16 @@ if __name__ == "__main__":
     initial_body_configuration = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     initial_swing_leg_positions = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     initial_contact_leg_positions = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    initial_body_velocity = np.array([0.0, 0.0, 0.0])
+    initial_body_velocity = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
     initial_swing_leg_velocity = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
-    velocity = .05
+    velocity = {
+            'x': 0.01,  # Forward velocity
+            'y': 0.0,   # Lateral velocity
+            'theta': 0.0  # Rotational velocity
+        }
+
     swing_height = 0.075
-    swing_time = 0.1
+    swing_time = 0.25/2
     step_size = 0.001
     K = int(swing_time / step_size)
     swing_phase = 0
@@ -306,10 +392,10 @@ if __name__ == "__main__":
         step_size,
         K,
         swing_phase,
-        walk_phase,
         swing_legs,
         contact_legs,
     )
+    print(K)
     # Number of cycles to simulate
     num_cycles = 5
     # Initialize storage for combined trajectories
@@ -324,7 +410,7 @@ if __name__ == "__main__":
 
     for _ in range(num_cycles):
         # Compute and store the trajectories for the current swing phase
-        body_positions, swing_legs, body_velocities, swing_leg_velocities = ref_traj.get_trajectory(walk_phase)
+        body_positions, swing_legs, body_velocities, swing_leg_velocities = ref_traj.get_trajectory()
         all_body_positions.append(body_positions[1:])
         all_swing_legs.append(swing_legs[1:])
         all_body_velocities.append(body_velocities[1:])

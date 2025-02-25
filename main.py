@@ -9,9 +9,18 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from scipy import sparse
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-import Simulation.config as config
+
 from reference_trajectory import ReferenceTrajectory
 import time
+
+import os
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), 'Simulation'))
+from Simulation.PhysicalSim import PhysicalSim 
+import threading
+import socket
+import pickle 
+from Simulation import config
 
 class WalkController:
     """
@@ -35,22 +44,28 @@ class WalkController:
                - Attributes like `K`, `ErrorPlotting`, `joint_toque`, etc.
         """
          # "idc" stands for "inverse dynamics controller"
-        # walk_phase = ["double_standing", "transition", "swing"] 
-        self.walk_phase = "double_standing" # intial phase
+        print("Initializing WalkController...")
+        
+        # Initialize simulation
         self.swing_phase = 0
-        # frequency 1kHZ 
-        self.step_size = 0.002 # 0.1 # Time step for simulation
-        self.swing_time =  0.25 # 0.25 # Duration of swing phase
+        self.step_size = 0.005  # 200Hz Time step for simulation
+        self.swing_time = 0.25  # Duration of swing phase
         self.K = int(self.swing_time / self.step_size)  # Number of steps for swing
+
+        # Real-time scaling
+        self.real_time_factor = 1.0  # Adjust this factor to scale time (1.0 for real-time, <1.0 for slower, >1.0 for faster)
+        self.step_size /= self.real_time_factor
        
 
         # Robot parameters
         self.body_height = 0.225 
         self.swing_height = 0.075
-        # self.velocity = 0.02 # Forward velocity
+        # self.swing_height = 0.0
+
+        # but rotation can be inserted at the same time with x and y
         self.velocity = {
             'x': 0.0,  # Forward velocity
-            'y': 0.01,   # Lateral velocity
+            'y': 0.0,   # Lateral velocity
             'theta': 0.0  # Rotational velocity
         }
 
@@ -60,6 +75,14 @@ class WalkController:
      
 
         self.idc = InverseDynamic(self.swing_legs, self.contact_legs)
+        time.sleep(1)
+        self.idc.cmd.move_to_initial_position()
+        init_body,init_sw,init_contact,init_body_vel, init_sw_vel = self.idc.initialize()
+         # 1. Prepare and initialize
+        self.ref_traj = ReferenceTrajectory(init_body,init_sw,init_contact,init_body_vel, init_sw_vel,
+                                        self.velocity,self.swing_height,self.swing_time,
+                                        self.step_size,self.K, 
+                                        self.swing_phase,self.swing_legs,self.contact_legs)
 
 
       
@@ -73,27 +96,18 @@ class WalkController:
             controller (str): Either "ID" (inverse dynamics) or "IK" (inverse kinematics).
             running_time (int): Number of control steps.
         """
-        # 1. Prepare and initialize
-        # self.idc.start_joint_updates()
-        # time.sleep(5)
-        self.idc.cmd.move_to_initial_position()
-        init_body,init_sw,init_contact,init_body_vel, init_sw_vel = self.idc.initialize()
-        ref_traj = ReferenceTrajectory(init_body,init_sw,init_contact,init_body_vel, init_sw_vel,
-                                        self.velocity,self.swing_height,self.swing_time,
-                                        self.step_size,self.K, 
-                                        self.swing_phase,self.walk_phase,self.swing_legs,self.contact_legs)
 
+        print(f"Starting walk with controller: {controller} for {running_time} steps")
         # 2. Initialize the trajectory generator
-        x_b, x_sw, x_b_dot, x_sw_dot = ref_traj.get_trajectory(self.walk_phase)
-
+        x_b, x_sw, x_b_dot, x_sw_dot = self.ref_traj.get_trajectory()
         # 3. Run the main loop
         if controller == "IK":
             for i in tqdm(range(running_time)):
                 index = (i + 1) % self.K
                 if index == 0:
-                    ref_traj.transition_legs()
+                    self.ref_traj.transition_legs()
                     self.idc.transition_legs()
-                    x_b, x_sw, x_b_dot, x_sw_dot= ref_traj.get_trajectory(self.walk_phase)
+                    x_b, x_sw, x_b_dot, x_sw_dot= self.ref_traj.get_trajectory()
                     
                 # Compute inverse kinematics + update commands
                 self.idc.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
@@ -109,17 +123,16 @@ class WalkController:
                 
                 index = (i + 1) % self.K
                 if index == 0:
-                    ref_traj.transition_legs()
+                    self.ref_traj.transition_legs()
                     self.idc.transition_legs()
-                    # time.sleep(0.0001)
-                    x_b, x_sw, x_b_dot, x_sw_dot = ref_traj.get_trajectory(self.walk_phase)
+                    x_b, x_sw, x_b_dot, x_sw_dot = self.ref_traj.get_trajectory()
             
                 # Calculate IK/ID references
-                self.idc.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
-                # Now compute ID torque and send to robot
+                self.qd, self.dqd, self.ddqd, self.ddqd_cmd= self.idc.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
+
                 self.idc.compute_torque()
                 self.idc.send_command_api()
-
+                # self.idc.send_command_ik()
             # Plot ID and IK errors (if needed)
             self.idc.plot_error_ik()
             self.idc.plot_error_id()
@@ -128,12 +141,12 @@ class WalkController:
 
 
 if __name__ == "__main__":
+    
+    
     ChannelFactoryInitialize(1, "lo")
-    # wc = WalkController()
-    # wc.walk(controller="IK", running_time=3500)
-    # plt.close()
-    # reset the simulation
-    # time.sleep(5)
+    # Initialize simulation
+    # sim = PhysicalSim()
     wc = WalkController()
-    wc.walk(controller="ID", running_time=5000)
-    plt.close()
+    wc.walk(controller="IK", running_time=4000)
+    
+

@@ -32,6 +32,7 @@ class ForwardKinematic:
         # self.start_joint_updates()
 
         self.counter = 0
+        self.start_joint_updates()
 
     def set_joint_angles(self):
         """
@@ -40,11 +41,11 @@ class ForwardKinematic:
         """
         # TODO: Set the joint angles and robot state in the MuJoCo data structure
         self.data.qpos[:3] = self.robot_position
-        self.data.qpos[3:7] = self.imu_data
+        self.data.qpos[3:7] = self.body_quat
         self.data.qpos[7:19] = self.joint_angles
 
         self.data.qvel[:3] = self.robot_velocity
-        self.data.qvel[3:6] = self.imu_velocity
+        self.data.qvel[3:6] = self.body_angular_velocity
         self.data.qvel[6:19] = self.joint_velocity
         
 
@@ -60,10 +61,10 @@ class ForwardKinematic:
         """
         # TODO: Get the body state (position and orientation) from MuJoCo data
         body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
-        if body_name == "world" or body_name == "base_link":
-            position = np.copy(self.data.xpos[body_id])
-        else:
-            position = np.copy(self.get_foot_position_in_hip_frame(body_id))
+        # if body_name == "world" or body_name == "base_link":
+        #     position = np.copy(self.data.xpos[body_id])
+        # else:
+        #     position = np.copy(self.get_foot_position_in_hip_frame(body_id))
         position = np.copy(self.data.xpos[body_id])
         orientation_quat = np.copy(self.data.xquat[body_id])
         orientation = self.convert_quat_to_euler(orientation_quat)
@@ -172,24 +173,27 @@ class ForwardKinematic:
             # update the sensor data from unitree sdk
             self.robot_position = self.task_space_reader.robot_state.position
             self.robot_velocity = self.task_space_reader.robot_state.velocity
-        
-
+            
+            # update the joint data from unitree sdk
             self.joint_angles = self.joint_state_reader.joint_angles
             self.joint_velocity = self.joint_state_reader.joint_velocity
             self.joint_toque = self.joint_state_reader.joint_tau
             
-            self.imu_data = self.joint_state_reader.imu_data
-            self.imu_velocity = self.joint_state_reader.imu_gyroscope
-            self.imu_acc = self.joint_state_reader.imu_accelerometer
-
-            
+            # update the imu data from unitree sdk
+            self.body_quat = self.joint_state_reader.imu_data
+            self.body_angular_velocity = self.joint_state_reader.imu_gyroscope
+            self.body_acc = self.joint_state_reader.imu_accelerometer
       
+            # set the joint angles to mujoco model 
             self.set_joint_angles()
+            # Run forward kinematics
             mujoco.mj_forward(self.model, self.data)
+            # Run Inverse Dynamics
             mujoco.mj_inverse(self.model, self.data)
-            # mujoco.mj_comPos(self.model, self.data) # Map inertias and motion dofs to global frame centered at CoM.
-            # mujoco.mj_crb(self.model, self.data)# Run composite rigid body inertia algorithm (CRB).
-            # mujoco.mj_comVel(self.model, self.data)
+            mujoco.mj_comPos(self.model, self.data) # Map inertias and motion dofs to global frame centered at CoM.
+            mujoco.mj_crb(self.model, self.data)# Run composite rigid body inertia algorithm (CRB).
+            mujoco.mj_comVel(self.model, self.data)
+            # self.print_joint_data()
             
             mujoco.mj_collision(self.model, self.data)
             
@@ -250,31 +254,7 @@ class ForwardKinematic:
         print(self.model.nq)
         print("===n_V number of DOF ==")
         print(self.model.nv)
-        # print("===n_C number of active constraints==")
-        # print(self.data.nefc)
-        # print("===bias force==")
-        # print(self.data.qfrc_bias)
-        # print("===self.data.qfrc_actuator==")
-        # print(self.data.qfrc_actuator)
-        # print("===self.data.qfrc_constraint==")
-        # print(self.data.qfrc_applied)
-        # print("===self.data.qfrc_==")
-        # print("===constraint residual ===")
-        # print(self.data.efc_pos)
-        # print("===constraint force ===")
-        # print(self.data.efc_force)
-
-        # print("Centroid Momentum of Inertia")
-        # print("===center of mass nbody x 3 ===")
-        # print(self.data.subtree_com)
-        # print("===com-based motion axis of each dof  ===")
-        # print(self.data.cdof)
-        # print("===com-based body inertia and mass  ===")
-        # print(self.data.cinert)
-        # print(self.data.subtree_com.shape)
-        # print(self.data.cdof.shape)
-        # print(self.data.cinert.shape)
-        # check the sensor data 
+  
         print("===My model sensor data ===")
         print(self.data.sensordata[:12])
         print("===sensor joint vel ===")
@@ -301,5 +281,9 @@ if __name__ == "__main__":
 
     ChannelFactoryInitialize(1, "lo")
     fk = ForwardKinematic()
+    fk.start_joint_updates()
+    cmd = send_motor_commands()
+    cmd.move_to_initial_position()
+    # time.sleep(1.0)
     # print(fk.print_joint_data())
     # time.sleep(1.0)

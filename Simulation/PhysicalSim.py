@@ -9,6 +9,7 @@ from unitree_sdk2py.core.channel import ChannelFactoryInitialize
 from unitree_sdk2py_bridge import UnitreeSdk2Bridge, ElasticBand
 
 import config 
+import numpy as np
 
 
 class PhysicalSim:
@@ -41,6 +42,13 @@ class PhysicalSim:
 
         time.sleep(0.2)
 
+    
+        # Store foot trajectory
+        self.reference_trajectory = []
+
+        # Create an `mjvScene` object for rendering
+        self.scene = mujoco.MjvScene(self.mj_model, maxgeom=1000)
+
     def simulation_thread(self):
         ChannelFactoryInitialize(config.DOMAIN_ID, config.INTERFACE)
         unitree = UnitreeSdk2Bridge(self.mj_model, self.mj_data)
@@ -61,14 +69,69 @@ class PhysicalSim:
                         self.mj_data.qpos[:3], self.mj_data.qvel[:3]
                     )
             mujoco.mj_step(self.mj_model, self.mj_data)
+            # self.update_foot_trajectory()
 
             self.locker.release()
-
+            
             time_until_next_step = self.mj_model.opt.timestep - (
                 time.perf_counter() - step_start
             )
             if time_until_next_step > 0:
                 time.sleep(time_until_next_step)
+
+
+    def update_reference_trajectory(self, trajectory):
+        """Update the reference trajectory visualization."""
+        self.reference_trajectory = trajectory
+
+    def update_foot_trajectory(self):
+        """Visualizes only the reference trajectory using blue lines."""
+        # Reset the number of geometries
+        self.scene.ngeom = 0
+        identity_mat = np.eye(3, dtype=np.float64).flatten()
+        ref_line_color = np.array([0, 0, 1, 1], dtype=np.float32)  # Blue
+
+        # Get the maximum number of geoms the scene can hold
+        max_geoms = len(self.scene.geoms)
+
+        for i in range(1, len(self.reference_trajectory)):
+            if self.scene.ngeom >= max_geoms:
+                break  # No more space to add geoms
+
+            # Get the start and end points of the line segment
+            start_point = self.reference_trajectory[i-1][:3].astype(np.float64)
+            end_point = self.reference_trajectory[i][:3].astype(np.float64)
+
+            # Access the current geom slot in the pre-allocated array
+            geom = self.scene.geoms[self.scene.ngeom]
+
+            # Initialize the geom as a line
+            mujoco.mjv_initGeom(
+                geom,
+                mujoco.mjtGeom.mjGEOM_LINE,
+                np.zeros(3, dtype=np.float64),  # Position (not used for line)
+                np.zeros(3, dtype=np.float64),  # Direction (not used)
+                identity_mat,
+                ref_line_color
+            )
+
+            # Set the line endpoints using connector
+            mujoco.mjv_connector(
+                geom,
+                mujoco.mjtGeom.mjGEOM_LINE,
+                0.002,  # Line width
+                start_point,
+                end_point
+            )
+
+            # Increment the geom counter
+            self.scene.ngeom += 1
+
+        # Update the scene to reflect the changes
+        mujoco.mjv_updateScene(
+            self.mj_model, self.mj_data, mujoco.MjvOption(),
+            None, mujoco.MjvCamera(), mujoco.mjtCatBit.mjCAT_ALL, self.scene
+        )
 
     def physics_viewer_thread(self):
         while self.viewer.is_running():

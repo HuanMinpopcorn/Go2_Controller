@@ -13,8 +13,8 @@ class InverseDynamic(InverseKinematic):
     def __init__(self,swing_legs, contact_legs):
         super().__init__(swing_legs, contact_legs)
 
-        self.mu = 0.6  # Friction coefficient
-        self.F_z_max = 250.0  # Max contact force
+        self.mu = 0.3  # Friction coefficient
+        self.F_z_max = 50  # Max contact force
         self.tau_min = -50.0  # Torque limits
         self.tau_max = 50.0
         
@@ -32,7 +32,9 @@ class InverseDynamic(InverseKinematic):
         self.u = None  # Upper bounds
         self.P = None  # Hessian matrix
         self.q = None  # Gradient vector
-        self.start_joint_updates()
+
+        
+        
         
     def contact_jacobian(self):
         nv = self.model.nv
@@ -45,23 +47,13 @@ class InverseDynamic(InverseKinematic):
         self.ddq_dim = self.model.nv  # Joint accelerations (DOFs) 
         self.number_of_contacts = ncon
         # print(f"number_of_contacts: {self.number_of_contacts}")
-
+        self.WF = sparse.csc_matrix(np.diag([5, 5, 1, 5, 5, 1])* 1)
+        self.Wc = sparse.csc_matrix(np.diag([1, 1, 1, 1, 1, 1] )* 10)
+        self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
      
-        # Preallocate full contact Jacobian: 3 rows per contact
-        Jc = np.zeros((3 * ncon, nv))
-        Jc_dot = np.zeros((3 * ncon, nv))
-        # Determine the number of contacts
-        if ncon == 0:
-            print("No contact points detected.")
-            return np.zeros((0, nv)), np.zeros((0, nv))
-        elif ncon == 2:
-            self.state_machine("swing")
-            Jc = self.J1
-            Jc_dot = self.J1_dot
-        elif ncon == 4:
-            self.state_machine("transition")
-            Jc = np.vstack((self.J1, self.J3))
-            Jc_dot = np.vstack((self.J1_dot, self.J3_dot))
+
+        Jc = self.J1
+        Jc_dot = self.J1_dot
 
         return Jc, Jc_dot
 
@@ -182,8 +174,6 @@ class InverseDynamic(InverseKinematic):
         
         self.combine_constraints()
         self.setup_cost_function()
-
-
         self.prob = osqp.OSQP()
         # print(f"P shape: {self.P.shape}, q shape: {self.q.shape}, A shape: {self.A.shape}, l shape: {self.l.shape}, u shape: {self.u.shape}")
         self.prob.setup(P=self.P, q=self.q, A=self.A, l=self.l, u=self.u, verbose=False)
@@ -208,9 +198,8 @@ class InverseDynamic(InverseKinematic):
         Fc_sol = Fc_sol.astype(np.float32)
         ddxc_sol = ddxc_sol.astype(np.float32)
         ddq_sol = ddq_sol.astype(np.float32)
-        if ddq_sol is None:
-            print("Warning: ddq_sol is None, skipping torque computation.")
-            return
+ 
+        # Compute mass matrix and bias forces
         M = np.zeros((self.model.nv, self.model.nv))
         mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
         B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
@@ -225,28 +214,14 @@ class InverseDynamic(InverseKinematic):
         Send the computed torques to the robot.
         """
         # print("Sending command API...")
-        ks = 100
-        dq_m = self.qd.reshape(-1,1) + self.tau.reshape(-1,1) / ks
-        # print(dq_m.shape)
-        # self.qd = np.zeros((self.model.nv, 1))
-        # self.dqd = np.zeros((self.model.nv, 1))
+        # ks = 1000 # spring constant
+        # dq_m = self.qd.reshape(-1,1) + self.tau.reshape(-1,1) / ks
+
         # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(dq_m), self.change_q_order(self.dqd), self.change_q_order(self.tau))
-        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
+        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd.copy()), self.change_q_order(self.dqd.copy()), self.change_q_order(self.tau.copy()))
+        
 
         
-        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
-    def send_command_ik(self):
-        """
-        Send the computed torques to the robot.
-        """
-        # print("Sending command API...")
-        M = np.zeros((self.model.nv, self.model.nv))
-        mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
-        B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
-        S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
-        self.tau = np.linalg.pinv(S.T) @ (M @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + B - self.data.qfrc_inverse.reshape(-1, 1))
-        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
-        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
 
 
  
@@ -269,24 +244,14 @@ class InverseDynamic(InverseKinematic):
         plt.show()
 
     def state_machine(self, phase):
-        if phase == "double_standing":
-            self.WF = sparse.csc_matrix(np.diag([5, 5, 0.5, 1, 1, 0.01]) * 100)
-            self.Wc = sparse.csc_matrix(np.diag([10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3]))
-            self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
-        elif phase == "transition":
-            self.WF = sparse.csc_matrix(np.diag([1, 1, 0.5, 1, 1, 0.01,1, 1, 0.5, 1, 1, 0.01]))
-            self.Wc = sparse.csc_matrix(np.diag([10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3, 10**-3, 10**-3, 10**-3, 10**3, 10**3, 10**3]))
-            self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
-        
-        elif phase == "swing":
-            # self.WF = sparse.csc_matrix(np.diag([5, 5, 1, 5, 5, 1]))
-            # self.Wc = sparse.csc_matrix(np.diag([10**3, 10**3, 10**3, 10**3, 10**3, 10**3]))
-            # self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 50)
-            self.WF = sparse.csc_matrix(np.diag([1, 1, .5, 1, 1, 1])* 100)
-            self.Wc = sparse.csc_matrix(np.diag([1,1,1,1,1,1]) * 10**3)
-            self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 10)
-        else:
-            raise ValueError("Invalid phase")
+        self.WF = sparse.csc_matrix(np.diag([5, 5, 1, 5, 5, 1]))
+        self.Wc = sparse.csc_matrix(np.diag([10**3, 10**3, 10**3, 10**3, 10**3, 10**3]))
+        self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 50)
+        # self.WF = sparse.csc_matrix(np.diag([1, 1, 10, 1, 1, 10])* 10)
+        # self.Wc = sparse.csc_matrix(np.diag([1,1,10,1,1,10]) * 1000)
+        # self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
+        # self.Wddq = sparse.csc_matrix(np.diag([np.zeros(6), np.ones(12)]) * 10)
+
 # if __name__ == "__main__":
 #     ChannelFactoryInitialize(1, "lo")
    
