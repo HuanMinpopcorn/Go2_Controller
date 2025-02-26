@@ -375,7 +375,6 @@ if __name__ == "__main__":
     step_size = 0.001
     K = int(swing_time / step_size)
     swing_phase = 0
-    walk_phase = 0
     swing_legs = ["FL_foot", "RR_foot"]
     contact_legs = ["FR_foot", "RL_foot"]
 

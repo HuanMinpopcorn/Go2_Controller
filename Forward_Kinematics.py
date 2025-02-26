@@ -49,7 +49,7 @@ class ForwardKinematic:
         self.data.qvel[6:19] = self.joint_velocity
         
 
-    def get_body_state(self, body_name):
+    def get_body_state(self, body_identifier):
         """
         Retrieves the position and orientation of the specified body in global frame.
 
@@ -59,39 +59,44 @@ class ForwardKinematic:
         Returns:
             dict: Contains 3D position and 3x3 orientation matrix of the body.
         """
-        # TODO: Get the body state (position and orientation) from MuJoCo data
-        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
-        # if body_name == "world" or body_name == "base_link":
-        #     position = np.copy(self.data.xpos[body_id])
-        # else:
-        #     position = np.copy(self.get_foot_position_in_hip_frame(body_id))
+        # Get the body state (position and orientation) from MuJoCo data
+               # Determine if the identifier is a name or an ID
+        if isinstance(body_identifier, str):
+            body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_identifier)
+        else:
+            body_id = body_identifier
         position = np.copy(self.data.xpos[body_id])
         orientation_quat = np.copy(self.data.xquat[body_id])
         orientation = self.convert_quat_to_euler(orientation_quat)
-
         return {"position": position, "orientation": orientation}
 
-    def get_jacobian(self, body_name):
+    
+
+    def get_jacobian(self, body_identifier):
         """
         Computes the Jacobian matrix for a given body.
 
         Parameters:
-            body_name (str): Name of the body to compute the Jacobian for.
+            body_identifier (str or int): Name or ID of the body to compute the Jacobian for.
 
         Returns:
             dict: Contains the translational and rotational Jacobians.
         """
-        # TODO: Compute the Jacobian matrix for the specified body
-        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+        # Determine if the identifier is a name or an ID
+        if isinstance(body_identifier, str):
+            body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_identifier)
+        else:
+            body_id = body_identifier
+
         J_pos = np.zeros((3, self.model.nv))
         J_rot = np.zeros((3, self.model.nv))
         mujoco.mj_jacBody(self.model, self.data, J_pos, J_rot, body_id)
         
-        if self.check_Jacobian_singularity(J_pos) or self.check_Jacobian_singularity(J_rot):
-            print(f"Jacobian for {body_name} is singular.")
+        if self.check_Jacobian_singularity(J_pos) or self.check_Jacobian_singularity(J_rot) and body_id != 0:
+            print(f"Jacobian for body ID {body_id} is singular.")
 
         return {"J_pos": J_pos, "J_rot": J_rot}
-    def get_jacobian_dot(self, body_name):
+    def get_jacobian_dot(self, body_identifier):
         """
         Computes the Jacobian matrix for a given body.
 
@@ -101,7 +106,12 @@ class ForwardKinematic:
         Returns:
             dict: Contains the translational and rotational Jacobians.
         """
-        body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_name)
+         # Determine if the identifier is a name or an ID
+        if isinstance(body_identifier, str):
+            body_id = mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_BODY, body_identifier)
+        else:
+            body_id = body_identifier
+
         Jp_dot = np.zeros((3, self.model.nv))   
         Jr_dot = np.zeros((3, self.model.nv))
 
@@ -162,6 +172,60 @@ class ForwardKinematic:
         yaw = np.clip(yaw, -np.pi, np.pi)
         
         return np.array([roll, pitch, yaw]).round(3)
+    def _get_contact_Jacobian(self, ncon):
+        """
+        Computes the Jacobian matrix for the contact points.
+
+        Parameters:
+            ncon (int): Number of contacts.
+
+        Returns:
+            np.ndarray: Contact Jacobian matrix.
+        """
+        # Get contact Jacobians
+        J_c = np.zeros((3 * ncon, self.model.nv))  # multiple stack contact Jacobian
+        for i in range(ncon):
+            contact = self.data.contact[i]
+            geom1_body_id = self.model.geom_bodyid[contact.geom1]
+            geom2_body_id = self.model.geom_bodyid[contact.geom2]
+
+            # get the body Jacobian
+            if geom1_body_id != 0:
+                J_c_single = self.get_jacobian(geom1_body_id)["J_pos"]
+            else:
+                J_c_single = self.get_jacobian(geom2_body_id)["J_pos"]
+
+            J_c[3 * i:3 * (i + 1), :] = J_c_single
+            # print(f"Contact ID: {i}, Geom1 Body ID: {geom1_body_id}, Geom2 Body ID: {geom2_body_id}")
+        # print(f"Contact Jacobian for contact {ncon}:\n{J_c.shape}")
+
+        return J_c
+    
+    def _get_contact_Jacobian_dot(self, ncon):
+        """
+        Computes the Jacobian matrix for the contact points.
+
+        Parameters:
+            ncon (int): Number of contacts.
+
+        Returns:
+            np.ndarray: Contact Jacobian matrix.
+        """
+        # Get contact Jacobians
+        J_c_dot = np.zeros((3 * ncon, self.model.nv))
+        for i in range(ncon):
+            contact = self.data.contact[i]
+            geom1_body_id = self.model.geom_bodyid[contact.geom1]
+            geom2_body_id = self.model.geom_bodyid[contact.geom2]
+            # get the body Jacobian
+            if geom1_body_id != 0:
+                J_c_dot_single = self.get_jacobian_dot(geom1_body_id)["Jp_dot"]
+            else:
+                J_c_dot_single = self.get_jacobian_dot(geom2_body_id)["Jp_dot"]
+            J_c_dot[3 * i:3 * (i + 1), :] = J_c_dot_single
+        # print(f"Contact Jacobian dot for contact {ncon}:\n{J_c_dot.shape}")
+        return J_c_dot
+
 
     def update_joint_angles(self):
         """
@@ -183,20 +247,24 @@ class ForwardKinematic:
             self.body_quat = self.joint_state_reader.imu_data
             self.body_angular_velocity = self.joint_state_reader.imu_gyroscope
             self.body_acc = self.joint_state_reader.imu_accelerometer
-      
-            # set the joint angles to mujoco model 
             self.set_joint_angles()
+
+            # update the contact location and jacobian
+            self.ncon = self.data.ncon
+            self.Jc = self._get_contact_Jacobian(self.data.ncon)
+            self.Jc_dot = self._get_contact_Jacobian_dot(self.data.ncon)
+            
             # Run forward kinematics
             mujoco.mj_forward(self.model, self.data)
             # Run Inverse Dynamics
             mujoco.mj_inverse(self.model, self.data)
-            mujoco.mj_comPos(self.model, self.data) # Map inertias and motion dofs to global frame centered at CoM.
-            mujoco.mj_crb(self.model, self.data)# Run composite rigid body inertia algorithm (CRB).
-            mujoco.mj_comVel(self.model, self.data)
+            # mujoco.mj_comPos(self.model, self.data) # Map inertias and motion dofs to global frame centered at CoM.
+            # mujoco.mj_crb(self.model, self.data)# Run composite rigid body inertia algorithm (CRB).
+            # mujoco.mj_comVel(self.model, self.data)
             # self.print_joint_data()
             
             mujoco.mj_collision(self.model, self.data)
-            
+            # print("collision",self.data.ncon)
             time.sleep(config.SIMULATE_DT)
 
     def start_joint_updates(self):
@@ -281,7 +349,6 @@ if __name__ == "__main__":
 
     ChannelFactoryInitialize(1, "lo")
     fk = ForwardKinematic()
-    fk.start_joint_updates()
     cmd = send_motor_commands()
     cmd.move_to_initial_position()
     # time.sleep(1.0)

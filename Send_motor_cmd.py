@@ -98,7 +98,22 @@ class send_motor_commands():
             self.cmd.crc = self.crc.Crc(self.cmd)
             self.low_cmd_pub.Write(self.cmd)
             time.sleep(self.step_size)
-        
+    
+    def lock_to_stand(self):
+        """
+        Lock the robot in the standing position.
+        """
+        print("Locking to standing position...")
+        while True:
+            for i in range(12):
+                self.cmd.motor_cmd[i].q = STAND_UP_JOINT_POS[i]
+                self.cmd.motor_cmd[i].kp = 50
+                self.cmd.motor_cmd[i].kd = 8
+                self.cmd.motor_cmd[i].tau = 0.0
+
+            self.cmd.crc = self.crc.Crc(self.cmd)
+            self.low_cmd_pub.Write(self.cmd)
+            time.sleep(self.step_size)
         
 
 
@@ -107,3 +122,4 @@ if __name__ == '__main__':
     ChannelFactoryInitialize(1, "lo")
     cmd = send_motor_commands()
     cmd.move_to_initial_position()
+    cmd.lock_to_stand()

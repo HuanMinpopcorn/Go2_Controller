@@ -48,8 +48,9 @@ class WalkController:
         
         # Initialize simulation
         self.swing_phase = 0
-        self.step_size = 0.005  # 200Hz Time step for simulation
-        self.swing_time = 0.25  # Duration of swing phase
+        # self.step_size = 0.005  # 200Hz Time step for simulation
+        self.step_size = config.SIMULATE_DT # 100Hz Time step for simulation
+        self.swing_time = 0.25/4  # Duration of swing phase
         self.K = int(self.swing_time / self.step_size)  # Number of steps for swing
 
         # Real-time scaling
@@ -112,11 +113,13 @@ class WalkController:
                 # Compute inverse kinematics + update commands
                 self.idc.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
                 self.idc.send_command_ik()
-
+            self.idc.cmd.lock_to_stand()
             # Plot any IK-related errors
             self.idc.plot_error_ik()
             # self.idc.plot_error_id()
             plt.show()
+            
+
         else:  # Use Inverse Dynamics
             for i in tqdm(range(running_time)):
                 self.idc.ErrorPlotting.torque_sensor_data.append(self.idc.joint_toque)
@@ -132,12 +135,15 @@ class WalkController:
 
                 self.idc.compute_torque()
                 self.idc.send_command_api()
-                # self.idc.send_command_ik()
-            # Plot ID and IK errors (if needed)
-            self.idc.plot_error_ik()
-            self.idc.plot_error_id()
-            plt.show()
+            self.idc.cmd.lock_to_stand()
 
+            # # Plot ID and IK errors (if needed)
+            # self.idc.plot_error_ik()
+            # self.idc.plot_error_id()
+            # plt.show()
+
+            # stop the robot and back to passive state 
+            
 
 
 if __name__ == "__main__":
