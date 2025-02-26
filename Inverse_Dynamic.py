@@ -8,6 +8,7 @@ import osqp
 import mujoco
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from threading import Lock
 
 class InverseDynamic(InverseKinematic):
     def __init__(self,swing_legs, contact_legs):
@@ -41,11 +42,17 @@ class InverseDynamic(InverseKinematic):
     def initialize_Weight_Matrix(self):
      
        
+        # ncon = self.data.ncon
+        
+        
+        self.lock.acquire()
         ncon = self.ncon
-        print(f"ncon: {ncon}")
-        self.Jc_id =  self.Jc.copy()
+        self.Jc_id = self.Jc.copy()
         self.Jc_dot_id = self.Jc_dot.copy()
-
+        self.lock.release()
+        # print(f"Contact Jacobian for contact {self.ncon}:\n{self.Jc.shape}")
+        if self.Jc_id.shape[0] != 3 * ncon or self.Jc_dot_id.shape[0] != 3 * ncon:
+            raise ValueError(f"Shape mismatch: Jc shape {self.Jc_id.shape[0]}, Jc_dot shape {self.Jc_dot_id.shape[0]}, expected {3 * ncon}")
 
 
         self.F_dim = 3 * ncon  # Number of contact forces
@@ -53,15 +60,9 @@ class InverseDynamic(InverseKinematic):
         self.ddq_dim = self.model.nv  # Joint accelerations (DOFs) 
         self.number_of_contacts = ncon
 
-        print(f"F_dim: {self.F_dim}, ddxc_dim: {self.ddxc_dim}, ddq_dim: {self.ddq_dim}")
-        # print(f"number_of_contacts: {self.number_of_contacts}")
-        # self.WF = sparse.csc_matrix(np.diag([5, 5, 1, 5, 5, 1])* 1)
-        # self.Wc = sparse.csc_matrix(np.diag([1, 1, 1, 1, 1, 1] )* 10)
-        # self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
-        self.WF = sparse.csc_matrix(np.eye(self.F_dim) * 1)
-        self.Wc = sparse.csc_matrix(np.eye(self.ddxc_dim) * 1)
-        # self.Wc = sparse.csc_matrix(np.diag([1, 1, 1, 1, 1, 1] )* 10)
-        self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 1)
+        self.WF = sparse.csc_matrix(np.eye(self.F_dim) * 10)
+        self.Wc = sparse.csc_matrix(np.eye(self.ddxc_dim) * 10)
+        self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 10)
 
 
     
@@ -97,12 +98,17 @@ class InverseDynamic(InverseKinematic):
         Formulate the kinematic constraints.
         """
         # print("Formulating kinematic constraints...")
-
+        # print(f"Jc_id: {self.Jc_id.shape}")
+        # print(f"Jc_dot_id: {self.Jc_dot_id.shape}")
+        # print(f"ddq_cmd: {self.ddq_cmd.shape}")
+        # print(f"data.qvel: {self.data.qvel.shape}")
+        
         A1 = sparse.csc_matrix(np.zeros((self.F_dim, self.F_dim)))  # Zero matrix
         A2 = sparse.csc_matrix(np.eye(self.ddxc_dim))  # Identity matrix
-        A3 = - self.Jc_id   # Negative Jacobian
+        A3 = - self.Jc_id.copy()   # Negative Jacobian
+        # print(f"A1: {A1.shape}, A2: {A2.shape}, A3: {A3.shape}")
         A_matrix = sparse.hstack([A1, A2, A3],format='csc')  # Constraint matrix
-        # print(f"J_contact: {self.J_contact.shape}, ddq_dik: {self.ddq_dik.shape}, dJ_contact: {self.dJ_contact.shape}, qvel: {self.qvel.shape}")
+
         l =  self.Jc_id @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + self.Jc_dot_id @ self.data.qvel.copy().reshape(-1,1)  # Lower bound
         u = l
         return A_matrix, l, u
@@ -174,7 +180,7 @@ class InverseDynamic(InverseKinematic):
         self.u = np.vstack([u_dyn, u_react, u_contact, u_contact_force_dir])
 
 
-    def solve(self):
+    def _QP_solve(self):
         """
         Solve the optimization problem usinga OSQP.
         """
@@ -183,7 +189,8 @@ class InverseDynamic(InverseKinematic):
         self.setup_cost_function()
         self.prob = osqp.OSQP()
         # print(f"P shape: {self.P.shape}, q shape: {self.q.shape}, A shape: {self.A.shape}, l shape: {self.l.shape}, u shape: {self.u.shape}")
-        self.prob.setup(P=self.P, q=self.q, A=self.A, l=self.l, u=self.u, verbose=False)
+        self.prob.setup(P=self.P, q=self.q, A=self.A, l=self.l, u=self.u,time_limit=0.001,
+                        verbose=False, warm_start=True)
         result = self.prob.solve()
 
         # Extract accelerations and forces      
@@ -191,9 +198,9 @@ class InverseDynamic(InverseKinematic):
         ddxc_sol = result.x[self.F_dim:self.F_dim + self.ddxc_dim]
         ddq_sol = result.x[-self.ddq_dim:]
         # print(f"ddq_sol: {ddq_sol.shape}, Fc_sol: {Fc_sol.shape}, ddxc_sol: {ddxc_sol.shape}")
-        self.ErrorPlotting.Fc_data.append(Fc_sol)
-        self.ErrorPlotting.ddxc_data.append(ddxc_sol)
-        self.ErrorPlotting.ddq_diff_data.append(ddq_sol)
+        # self.ErrorPlotting.Fc_data.append(Fc_sol)
+        # self.ErrorPlotting.ddxc_data.append(ddxc_sol)
+        # self.ErrorPlotting.ddq_diff_data.append(ddq_sol)
         return Fc_sol.reshape(-1, 1), ddxc_sol.reshape(-1, 1), ddq_sol.reshape(-1, 1)
 
     def compute_torque(self):
@@ -201,7 +208,7 @@ class InverseDynamic(InverseKinematic):
         Compute joint torques using the inverse dynamics solution.
         """
         # print("Computing torques...")
-        Fc_sol, ddxc_sol, ddq_sol = self.solve()
+        Fc_sol, ddxc_sol, ddq_sol = self._QP_solve()
         Fc_sol = Fc_sol.astype(np.float32)
         ddxc_sol = ddxc_sol.astype(np.float32)
         ddq_sol = ddq_sol.astype(np.float32)
@@ -212,7 +219,7 @@ class InverseDynamic(InverseKinematic):
         B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
         S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
         self.ErrorPlotting.tau_data.append(self.tau)
-        print(f"Fc_sol shape: {Fc_sol.shape}, ddxc_sol shape: {ddxc_sol.shape}, ddq_sol shape: {ddq_sol.shape}, M shape: {M.shape}, B shape: {B.shape}, S shape: {np.linalg.pinv(S.T).shape}, Jc shape: { self.Jc_id .shape}")
+        # print(f"Fc_sol shape: {Fc_sol.shape}, ddxc_sol shape: {ddxc_sol.shape}, ddq_sol shape: {ddq_sol.shape}, M shape: {M.shape}, B shape: {B.shape}, S shape: {np.linalg.pinv(S.T).shape}, Jc shape: { self.Jc_id .shape}")
         self.tau = np.linalg.pinv(S.T) @ (M @ (np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + ddq_sol) + B - self.Jc_id.T @ Fc_sol)
         self.tau = np.clip(self.tau, self.tau_min, self.tau_max)
         # print(f"tau shape: {self.tau.T}")

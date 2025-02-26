@@ -35,8 +35,8 @@ class InverseKinematic(ForwardKinematic):
         self.ErrorPlotting = ErrorPlotting()
 
         # intial the API gain 
-        self.kp = 200
-        self.kd = 8
+        self.kp = 400
+        self.kd = 5
         self.swing_phase = 0
         # self.walk_phase = "double_standing" # intial phase
         # intialize output for Inverse Dynamics shape (12, 1)

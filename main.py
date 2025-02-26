@@ -48,15 +48,14 @@ class WalkController:
         
         # Initialize simulation
         self.swing_phase = 0
-        # self.step_size = 0.005  # 200Hz Time step for simulation
-        self.step_size = config.SIMULATE_DT # 100Hz Time step for simulation
-        self.swing_time = 0.25/4  # Duration of swing phase
-        self.K = int(self.swing_time / self.step_size)  # Number of steps for swing
-
+        
+        self.swing_time = 0.25  # Duration of swing phase second
+        self.step_size = config.SIMULATE_DT  # Simulation time step
+        
         # Real-time scaling
         self.real_time_factor = 1.0  # Adjust this factor to scale time (1.0 for real-time, <1.0 for slower, >1.0 for faster)
         self.step_size /= self.real_time_factor
-       
+        self.K = int(self.swing_time / self.step_size)  # Number of control steps in one gait cycle
 
         # Robot parameters
         self.body_height = 0.225 
@@ -76,7 +75,7 @@ class WalkController:
      
 
         self.idc = InverseDynamic(self.swing_legs, self.contact_legs)
-        time.sleep(1)
+        # time.sleep(1)
         self.idc.cmd.move_to_initial_position()
         init_body,init_sw,init_contact,init_body_vel, init_sw_vel = self.idc.initialize()
          # 1. Prepare and initialize
@@ -104,6 +103,7 @@ class WalkController:
         # 3. Run the main loop
         if controller == "IK":
             for i in tqdm(range(running_time)):
+                tic = time.time()
                 index = (i + 1) % self.K
                 if index == 0:
                     self.ref_traj.transition_legs()
@@ -113,6 +113,8 @@ class WalkController:
                 # Compute inverse kinematics + update commands
                 self.idc.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
                 self.idc.send_command_ik()
+                toc = time.time()
+                print("time: ", toc-tic)
             self.idc.cmd.lock_to_stand()
             # Plot any IK-related errors
             self.idc.plot_error_ik()
@@ -123,7 +125,7 @@ class WalkController:
         else:  # Use Inverse Dynamics
             for i in tqdm(range(running_time)):
                 self.idc.ErrorPlotting.torque_sensor_data.append(self.idc.joint_toque)
-                
+                tic = time.time()
                 index = (i + 1) % self.K
                 if index == 0:
                     self.ref_traj.transition_legs()
@@ -134,7 +136,10 @@ class WalkController:
                 self.qd, self.dqd, self.ddqd, self.ddqd_cmd= self.idc.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
 
                 self.idc.compute_torque()
+                # self.idc.send_command_ik()
                 self.idc.send_command_api()
+                toc = time.time()
+                print("time: ", toc-tic)
             self.idc.cmd.lock_to_stand()
 
             # # Plot ID and IK errors (if needed)
@@ -150,9 +155,7 @@ if __name__ == "__main__":
     
     
     ChannelFactoryInitialize(1, "lo")
-    # Initialize simulation
-    # sim = PhysicalSim()
     wc = WalkController()
-    wc.walk(controller="IK", running_time=4000)
+    wc.walk(controller="ID", running_time=4000)
     
 

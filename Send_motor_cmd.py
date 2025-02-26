@@ -104,7 +104,9 @@ class send_motor_commands():
         Lock the robot in the standing position.
         """
         print("Locking to standing position...")
-        while True:
+        running_time = 0.0
+        while running_time < 5:
+            running_time += self.step_size
             for i in range(12):
                 self.cmd.motor_cmd[i].q = STAND_UP_JOINT_POS[i]
                 self.cmd.motor_cmd[i].kp = 50

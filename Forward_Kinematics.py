@@ -32,6 +32,7 @@ class ForwardKinematic:
         # self.start_joint_updates()
 
         self.counter = 0
+        self.lock = threading.Lock()
         self.start_joint_updates()
 
     def set_joint_angles(self):
@@ -39,6 +40,7 @@ class ForwardKinematic:
         feed the topic's info to mujoco calculation 
         offline from the mujoco simulation 
         """
+        self.lock.acquire()
         # TODO: Set the joint angles and robot state in the MuJoCo data structure
         self.data.qpos[:3] = self.robot_position
         self.data.qpos[3:7] = self.body_quat
@@ -47,7 +49,7 @@ class ForwardKinematic:
         self.data.qvel[:3] = self.robot_velocity
         self.data.qvel[3:6] = self.body_angular_velocity
         self.data.qvel[6:19] = self.joint_velocity
-        
+        self.lock.release()
 
     def get_body_state(self, body_identifier):
         """
@@ -233,7 +235,8 @@ class ForwardKinematic:
         """
         # TODO: Continuously update joint angles and run forward kinematics
         while self.running:
-
+            
+            self.lock.acquire()
             # update the sensor data from unitree sdk
             self.robot_position = self.task_space_reader.robot_state.position
             self.robot_velocity = self.task_space_reader.robot_state.velocity
@@ -247,13 +250,20 @@ class ForwardKinematic:
             self.body_quat = self.joint_state_reader.imu_data
             self.body_angular_velocity = self.joint_state_reader.imu_gyroscope
             self.body_acc = self.joint_state_reader.imu_accelerometer
-            self.set_joint_angles()
+            
 
             # update the contact location and jacobian
-            self.ncon = self.data.ncon
-            self.Jc = self._get_contact_Jacobian(self.data.ncon)
-            self.Jc_dot = self._get_contact_Jacobian_dot(self.data.ncon)
             
+            self.ncon = self.data.ncon
+            self.Jc = self._get_contact_Jacobian(self.ncon)
+            self.Jc_dot = self._get_contact_Jacobian_dot(self.ncon)
+            # print(f"Contact Jacobian for contact {self.ncon}:\n{self.Jc.shape}")
+            if self.Jc.shape[0] != 3 * self.ncon or self.Jc_dot.shape[0] != 3 * self.ncon:
+                raise ValueError(f"Shape mismatch: Jc shape {self.Jc.shape[0]}, Jc_dot shape {self.Jc_dot.shape[0]}, expected {3 * self.ncon}")
+            self.lock.release() 
+
+            # Set joint angles
+            self.set_joint_angles()
             # Run forward kinematics
             mujoco.mj_forward(self.model, self.data)
             # Run Inverse Dynamics
