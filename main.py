@@ -1,5 +1,5 @@
 
-from Inverse_Dynamic import InverseDynamic     
+from Go2_Controller.Control.Inverse_Dynamic import InverseDynamic     
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -49,18 +49,20 @@ class WalkController:
         # Initialize simulation
         self.swing_phase = 0
         
+        self.gait_period = 0.5  # whole gait cycle time P
         self.swing_time = 0.25  # Duration of swing phase second
+        self.duty_factor = self.swing_time / self.gait_period  # Duty factor
         self.step_size = config.SIMULATE_DT  # Simulation time step
         
         # Real-time scaling
         self.real_time_factor = 1 # Adjust this factor to scale time (1.0 for real-time, <1.0 for slower, >1.0 for faster)
         self.step_size /= self.real_time_factor
-        self.K = int(self.swing_time / self.step_size)  # Number of control steps in one gait cycle
+        self.K = int(self.gait_period / self.step_size)  # Number of control steps in one gait cycle
 
         # Robot parameters
         self.body_height = 0.225 
         self.swing_height = 0.075
-        # self.swing_height = 0.0
+
 
         # but rotation can be inserted at the same time with x and y
         self.velocity = {
@@ -80,9 +82,8 @@ class WalkController:
         init_body,init_sw,init_contact,init_body_vel, init_sw_vel = self.idc.initialize()
          # 1. Prepare and initialize
         self.ref_traj = ReferenceTrajectory(init_body,init_sw,init_contact,init_body_vel, init_sw_vel,
-                                        self.velocity,self.swing_height,self.swing_time,
-                                        self.step_size,self.K, 
-                                        self.swing_phase,self.swing_legs,self.contact_legs)
+                                        self.velocity,self.swing_height,self.gait_period, self.swing_time, self.duty_factor,
+                                        self.step_size,self.K,self.swing_phase,self.swing_legs,self.contact_legs)
 
 
       
@@ -156,6 +157,6 @@ if __name__ == "__main__":
     
     ChannelFactoryInitialize(1, "lo")
     wc = WalkController()
-    wc.walk(controller="ID", running_time=4000)
+    wc.walk(controller="ID", running_time=2000)
     
 

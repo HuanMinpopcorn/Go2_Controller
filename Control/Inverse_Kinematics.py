@@ -1,8 +1,8 @@
 import mujoco
 import numpy as np
 
-from Forward_Kinematics import ForwardKinematic
-from Send_motor_cmd import send_motor_commands
+from Go2_Controller.Control.Forward_Kinematics import ForwardKinematic
+from Go2_Controller.Interface.Send_motor_cmd import send_motor_commands
 from error_plotting import ErrorPlotting
 import matplotlib.pyplot as plt
 import time
@@ -60,6 +60,7 @@ class InverseKinematic(ForwardKinematic):
         # self.tau = self.joint_toque.copy()
         self.tau = np.zeros((12, 1))
         
+        self.lock.acquire()
         self.initial_joint_angles = self.joint_angles.copy()
         self.initial_joint_velocity = self.joint_velocity.copy()
 
@@ -73,6 +74,8 @@ class InverseKinematic(ForwardKinematic):
 
         self.initial_swing_leg_jacobian = np.vstack([self.get_jacobian(leg)["J_pos"] for leg in self.swing_legs])[:,6:18]
         self.initial_swing_leg_velocity = self.initial_swing_leg_jacobian @ self.initial_joint_velocity
+
+        self.lock.release()
 
         return  self.initial_body_configuration, self.initial_swing_leg_positions, self.initial_contact_leg_positions, self.initial_body_velocity, self.initial_swing_leg_velocity
 
@@ -313,8 +316,8 @@ class InverseKinematic(ForwardKinematic):
         Send the computed torques to the robot.
         """
         # print("Sending command API...")
-        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau_ik))
-        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
+        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau_ik))
+        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
 
             
  
@@ -375,8 +378,8 @@ class InverseKinematic(ForwardKinematic):
                  self.ErrorPlotting.x3_dot_data, 
                  self.ErrorPlotting.dx_sw_dot_data, 
                  "Swing_Velocity .")
-        
-        self.ErrorPlotting.plot_torque(tau_ik=self.ErrorPlotting.tau_data_ik, title="joint toque IK")
+        tau_id = np.zeros_like(self.ErrorPlotting.tau_data_ik)
+        self.ErrorPlotting.plot_torque(self.ErrorPlotting.tau_data_ik, tau_id ,"joint torque IK")
         # plot the command output 
         # self.ErrorPlotting.plot_api_value()
 

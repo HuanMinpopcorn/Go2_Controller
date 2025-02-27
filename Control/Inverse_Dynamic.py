@@ -2,7 +2,7 @@ import numpy as np
 from scipy import sparse
 import time
 
-from Inverse_Kinematics import InverseKinematic
+from Go2_Controller.Control.Inverse_Kinematics import InverseKinematic
 
 import osqp
 import mujoco
@@ -60,8 +60,17 @@ class InverseDynamic(InverseKinematic):
         self.ddq_dim = self.model.nv  # Joint accelerations (DOFs) 
         self.number_of_contacts = ncon
 
-        self.WF = sparse.csc_matrix(np.eye(self.F_dim) * 10)
-        self.Wc = sparse.csc_matrix(np.eye(self.ddxc_dim) * 100)
+        # Higher weight for x and y directions
+        WF = np.eye(self.F_dim) * 1
+        for i in range(self.number_of_contacts):
+            WF[3 * i, 3 * i] = 10  # x direction
+            WF[3 * i + 1, 3 * i + 1] = 10  # y direction
+        self.WF = sparse.csc_matrix(WF)
+        Wc = np.eye(self.ddxc_dim) * 1
+        for i in range(self.number_of_contacts):
+            Wc[3 * i, 3 * i] = 100  # x direction
+            Wc[3 * i + 1, 3 * i + 1] = 100  # y direction
+        self.Wc = sparse.csc_matrix(Wc)
         self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 10)
 
 
@@ -181,10 +190,10 @@ class InverseDynamic(InverseKinematic):
         self.setup_cost_function()
         self.prob = osqp.OSQP()
         # print(f"P shape: {self.P.shape}, q shape: {self.q.shape}, A shape: {self.A.shape}, l shape: {self.l.shape}, u shape: {self.u.shape}")
-        # self.prob.setup(P=self.P, q=self.q, A=self.A, l=self.l, u=self.u,time_limit=0.0001,max_iter=100,
-        #                 verbose=False, warm_start=True)
-        self.prob.setup(P=self.P, q=self.q, A=self.A, l=self.l, u=self.u,
-                        verbose=False, warm_start=True)
+        self.prob.setup(P=self.P, q=self.q, A=self.A, l=self.l, u=self.u, max_iter=100,
+                        verbose=False)
+        # self.prob.setup(P=self.P, q=self.q, A=self.A, l=self.l, u=self.u,
+        #                 verbose=False)
         result = self.prob.solve()
 
         # Extract accelerations and forces      

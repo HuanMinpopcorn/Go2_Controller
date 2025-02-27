@@ -9,15 +9,15 @@ import Simulation.config as config
 
 from scipy.spatial.transform import Rotation as R
 
-from Forward_Kinematics import ForwardKinematic
-from Inverse_Kinematics import InverseKinematic
-from read_JointState import read_JointState
-from read_TaskSpace import read_TaskSpace
+from Go2_Controller.Control.Forward_Kinematics import ForwardKinematic
+from Go2_Controller.Control.Inverse_Kinematics import InverseKinematic
+from Go2_Controller.Interface.read_JointState import read_JointState
+from Go2_Controller.Interface.read_TaskSpace import read_TaskSpace
 
 from unitree_sdk2py.core.channel import (
     ChannelPublisher, ChannelSubscriber, ChannelFactoryInitialize
 )
-from Send_motor_cmd import send_motor_commands
+from Go2_Controller.Interface.Send_motor_cmd import send_motor_commands
 from error_plotting import ErrorPlotting
 import tqdm
 import matplotlib.pyplot as plt

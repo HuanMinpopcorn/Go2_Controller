@@ -4,10 +4,10 @@ import threading
 import time
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from read_JointState import read_JointState
-from read_TaskSpace import read_TaskSpace
+from Go2_Controller.Interface.read_JointState import read_JointState
+from Go2_Controller.Interface.read_TaskSpace import read_TaskSpace
 from Simulation import config
-from Forward_Kinematics import ForwardKinematic 
+from Go2_Controller.Control.Forward_Kinematics import ForwardKinematic 
 
 ChannelFactoryInitialize(1, "lo")
 fk = ForwardKinematic()

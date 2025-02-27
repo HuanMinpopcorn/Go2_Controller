@@ -14,7 +14,7 @@ class ReferenceTrajectory:
         initial_swing_leg_velocity,
         velocity,
         swing_height,
-        swing_time,
+        gait_period, swing_time, duty_factor,
         step_size,
         K,
         swing_phase,
@@ -43,12 +43,16 @@ class ReferenceTrajectory:
         self.velocity = velocity
         self.swing_height = swing_height
         self.swing_time = swing_time
+        
         self.step_size = step_size
         self.swing_phase = swing_phase
         self.swing_legs = swing_legs 
         self.contact_legs = contact_legs
 
-
+        self.gait_period = gait_period
+        self.duty_factor = duty_factor # Proportion of time spent in swing phase
+        self.stance_time = (1 - self.duty_factor) * self.gait_period # touch down time
+    
         # Compute the total number of trajectory points per swing phase
         self.K = K
 
@@ -57,6 +61,31 @@ class ReferenceTrajectory:
         self.updated_swing_leg_positions = np.copy(self.initial_swing_leg_positions)
         self.updated_contact_leg_positions = np.copy(self.initial_contact_leg_positions)
     
+    def getBias(self):  
+
+        """Calculate the time shift for the swing phase"""
+        if self.duty_factor > 0.5:
+            print("walking trot gait")
+            b = self.gait_period / 2
+        elif self.duty_factor == 0.5:
+            print("stepping trot gait")
+            b = 0 
+        elif self.duty_factor < 0.5:
+            print("running trot gait")
+            b = self.gait_period / 2
+        else:
+            raise ValueError("Invalid walk phase")
+        return b
+    
+    def getStepPosition(self): 
+
+        xb = self.initial_body_configuration[0]
+        yb = self.initial_body_configuration[1]
+        xf = xb + self.velocity["x"] * self.swing_time + 1/2 * self.velocity["x"] * self.stance_time
+        yf = yb + self.velocity["y"] * self.swing_time + 1/2 * self.velocity["y"] * self.stance_time
+        return xf, yf
+
+
     def foot_trajectory(self, i):
         """Calculate foot trajectory and its derivative for swing phase"""
         # Common parameters
@@ -87,8 +116,8 @@ class ReferenceTrajectory:
             #(x,y) = (a*cos(t), b*sin(t))
             theta = np.pi * t  # Parameter from 0 to π
             # Ellipse parameters
-            a_x = self.swing_time * abs(self.velocity["x"])/2  # Semi-major axis (forward motion)
-            a_y = self.swing_time * abs(self.velocity["y"])/2  # Semi-major axis (forward motion)
+            a_x = self.velocity["x"]
+            a_y = self.velocity["y"]
             b = self.swing_height  # Semi-minor axis (vertical motion)
             
             # Position components (parametric equations)
@@ -97,7 +126,7 @@ class ReferenceTrajectory:
             z = b * np.sin(theta)           # Vertical displacement
             
             # Velocity components (derivatives w.r.t. time)
-            dx_dt = a_x * np.sin(theta) * (np.pi )
+            dx_dt = a_x * np.sin(theta) * (np.pi)
             dy_dt = a_y * np.sin(theta) * (np.pi)
             dz_dt = b * np.cos(theta) * (np.pi )
                     
@@ -245,8 +274,6 @@ class ReferenceTrajectory:
             # Get foot trajectory derivatives
             _, foot_traj_deriv = self.foot_trajectory(i)
             
-            # Calculate accumulated rotation angle
-            theta = self.velocity["theta"] * i * self.step_size
             
             for leg_index in range(len(swing_legs)):
                 base_idx = 3 * leg_index
@@ -348,6 +375,8 @@ class ReferenceTrajectory:
             plt.figure(figsize=(8, 6))
             for i in range(swing_legs.shape[1] // 3):
                 plt.plot(swing_legs[:, 3*i], swing_legs[:, 3*i+2], label=f'Leg {i}')
+            # Plot body X positions vs Z positions
+            plt.plot(body_positions[:, 0], body_positions[:, 2], label='Body X vs Z', linestyle='--')
             plt.title('Swing Leg X Positions vs Z Positions')
             plt.xlabel('X Position')
             plt.ylabel('Z Position')
@@ -396,7 +425,7 @@ if __name__ == "__main__":
     )
     print(K)
     # Number of cycles to simulate
-    num_cycles = 5
+    num_cycles = 6
     # Initialize storage for combined trajectories
     all_body_positions = []
     all_swing_legs = []
