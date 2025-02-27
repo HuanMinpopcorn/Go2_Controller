@@ -48,7 +48,8 @@ class ErrorPlotting:
         self.output_data = []
 
         # Inverse dynamics data storage
-        self.tau_data = []
+        self.tau_data_ik = []
+        self.tau_data_id = []
         self.Fc_data = []
         self.ddxc_data = []
         self.ddq_diff_data = []
@@ -277,13 +278,14 @@ class ErrorPlotting:
             plt.legend()
             plt.grid(True)
 
-    def plot_torque(self, tau, title):
+    def plot_torque(self, tau_ik, tau_id, title):
         labels = ['FR_hip', 'FR_thigh', 'FR_calf', 'FL_hip', 'FL_thigh', 'FL_calf', 'RR_hip', 'RR_thigh', 'RR_calf', 'RL_hip', 'RL_thigh', 'RL_calf']
 
         plt.figure(figsize=(12, 18))
         for i, label in enumerate(labels):
             plt.subplot(len(labels), 1, i + 1)
-            plt.plot([data[i] for data in tau], label=f'tau[{label}]')
+            plt.plot([data[i] for data in tau_ik], label=f'tau_ik[{label}]')
+            plt.plot([data[i] for data in tau_id], label=f'tau_id[{label}]')
             plt.title(f'{title} {label.capitalize()} Over Time')
             plt.xlabel('Iteration')
             plt.ylabel(f'{label.capitalize()}')

@@ -53,7 +53,7 @@ class WalkController:
         self.step_size = config.SIMULATE_DT  # Simulation time step
         
         # Real-time scaling
-        self.real_time_factor = 1.0  # Adjust this factor to scale time (1.0 for real-time, <1.0 for slower, >1.0 for faster)
+        self.real_time_factor = 1 # Adjust this factor to scale time (1.0 for real-time, <1.0 for slower, >1.0 for faster)
         self.step_size /= self.real_time_factor
         self.K = int(self.swing_time / self.step_size)  # Number of control steps in one gait cycle
 
@@ -75,7 +75,7 @@ class WalkController:
      
 
         self.idc = InverseDynamic(self.swing_legs, self.contact_legs)
-        # time.sleep(1)
+        time.sleep(config.SIMULATE_DT)
         self.idc.cmd.move_to_initial_position()
         init_body,init_sw,init_contact,init_body_vel, init_sw_vel = self.idc.initialize()
          # 1. Prepare and initialize
@@ -114,7 +114,7 @@ class WalkController:
                 self.idc.calculate(x_sw, x_b, x_sw_dot, x_b_dot, index)
                 self.idc.send_command_ik()
                 toc = time.time()
-                print("time: ", toc-tic)
+                # print("time: ", toc-tic)
             self.idc.cmd.lock_to_stand()
             # Plot any IK-related errors
             self.idc.plot_error_ik()
@@ -139,13 +139,13 @@ class WalkController:
                 # self.idc.send_command_ik()
                 self.idc.send_command_api()
                 toc = time.time()
-                print("time: ", toc-tic)
+                # print("time: ", toc-tic)
             self.idc.cmd.lock_to_stand()
 
             # # Plot ID and IK errors (if needed)
             # self.idc.plot_error_ik()
-            # self.idc.plot_error_id()
-            # plt.show()
+            self.idc.plot_error_id()
+            plt.show()
 
             # stop the robot and back to passive state 
             

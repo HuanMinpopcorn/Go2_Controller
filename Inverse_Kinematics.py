@@ -278,7 +278,7 @@ class InverseKinematic(ForwardKinematic):
         self.ddq_cmd = self.ddqd.reshape(-1, 1) + dq_error.reshape(-1, 1) + dq_dot_error.reshape(-1, 1)  # desired joint acceleration
         
        
-        
+        self.calculate_ik_torque()
         # get the desired q qdot qddot and current q, qdot 
         self.ErrorPlotting.q_desired_data.append(self.qd)
         self.ErrorPlotting.q_current_data.append(self.joint_angles)
@@ -298,18 +298,23 @@ class InverseKinematic(ForwardKinematic):
         self.ErrorPlotting.RR_position.append(self.get_body_state("RR_foot")["position"])
 
         return self.qd, self.dqd, self.ddqd, self.ddq_cmd
+    
+    def calculate_ik_torque(self):
+        M = np.zeros((self.model.nv, self.model.nv))
+        mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
+        B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
+        S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
+        self.tau_ik = np.linalg.pinv(S.T) @ (M @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + B - self.data.qfrc_inverse.reshape(-1, 1))
+        # record the tau value 
+        self.ErrorPlotting.tau_data_ik.append(self.tau_ik)
+
     def send_command_ik(self):
         """
         Send the computed torques to the robot.
         """
         # print("Sending command API...")
-        M = np.zeros((self.model.nv, self.model.nv))
-        mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
-        B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
-        S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
-        self.tau = np.linalg.pinv(S.T) @ (M @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + B - self.data.qfrc_inverse.reshape(-1, 1))
-        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau))
-        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
+        self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd), self.change_q_order(self.tau_ik))
+        # self.cmd.send_motor_commands(self.kp, self.kd, self.change_q_order(self.qd), self.change_q_order(self.dqd))
 
             
  
@@ -371,6 +376,7 @@ class InverseKinematic(ForwardKinematic):
                  self.ErrorPlotting.dx_sw_dot_data, 
                  "Swing_Velocity .")
         
+        self.ErrorPlotting.plot_torque(tau_ik=self.ErrorPlotting.tau_data_ik, title="joint toque IK")
         # plot the command output 
         # self.ErrorPlotting.plot_api_value()
 

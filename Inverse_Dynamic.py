@@ -61,7 +61,7 @@ class InverseDynamic(InverseKinematic):
         self.number_of_contacts = ncon
 
         self.WF = sparse.csc_matrix(np.eye(self.F_dim) * 10)
-        self.Wc = sparse.csc_matrix(np.eye(self.ddxc_dim) * 10)
+        self.Wc = sparse.csc_matrix(np.eye(self.ddxc_dim) * 100)
         self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 10)
 
 
@@ -76,10 +76,7 @@ class InverseDynamic(InverseKinematic):
         M = np.zeros((self.model.nv, self.model.nv))
         mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
         B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
-        # S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
 
-        #  self.Jc_id , self.Jc_dot_id = self.contact_jacobian()
-       
         
         # self.tau = np.linalg.pinv(S.T) @ (M @ np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + B - self.data.qfrc_inverse.reshape(-1, 1))
         tau_cmd = np.vstack((np.zeros((6, 1)), self.tau.reshape(-1, 1)))    
@@ -97,12 +94,7 @@ class InverseDynamic(InverseKinematic):
         """
         Formulate the kinematic constraints.
         """
-        # print("Formulating kinematic constraints...")
-        # print(f"Jc_id: {self.Jc_id.shape}")
-        # print(f"Jc_dot_id: {self.Jc_dot_id.shape}")
-        # print(f"ddq_cmd: {self.ddq_cmd.shape}")
-        # print(f"data.qvel: {self.data.qvel.shape}")
-        
+   
         A1 = sparse.csc_matrix(np.zeros((self.F_dim, self.F_dim)))  # Zero matrix
         A2 = sparse.csc_matrix(np.eye(self.ddxc_dim))  # Identity matrix
         A3 = - self.Jc_id.copy()   # Negative Jacobian
@@ -189,7 +181,9 @@ class InverseDynamic(InverseKinematic):
         self.setup_cost_function()
         self.prob = osqp.OSQP()
         # print(f"P shape: {self.P.shape}, q shape: {self.q.shape}, A shape: {self.A.shape}, l shape: {self.l.shape}, u shape: {self.u.shape}")
-        self.prob.setup(P=self.P, q=self.q, A=self.A, l=self.l, u=self.u,time_limit=0.001,
+        # self.prob.setup(P=self.P, q=self.q, A=self.A, l=self.l, u=self.u,time_limit=0.0001,max_iter=100,
+        #                 verbose=False, warm_start=True)
+        self.prob.setup(P=self.P, q=self.q, A=self.A, l=self.l, u=self.u,
                         verbose=False, warm_start=True)
         result = self.prob.solve()
 
@@ -198,9 +192,9 @@ class InverseDynamic(InverseKinematic):
         ddxc_sol = result.x[self.F_dim:self.F_dim + self.ddxc_dim]
         ddq_sol = result.x[-self.ddq_dim:]
         # print(f"ddq_sol: {ddq_sol.shape}, Fc_sol: {Fc_sol.shape}, ddxc_sol: {ddxc_sol.shape}")
-        # self.ErrorPlotting.Fc_data.append(Fc_sol)
-        # self.ErrorPlotting.ddxc_data.append(ddxc_sol)
-        # self.ErrorPlotting.ddq_diff_data.append(ddq_sol)
+        self.ErrorPlotting.Fc_data.append(Fc_sol)
+        self.ErrorPlotting.ddxc_data.append(ddxc_sol)
+        self.ErrorPlotting.ddq_diff_data.append(ddq_sol)
         return Fc_sol.reshape(-1, 1), ddxc_sol.reshape(-1, 1), ddq_sol.reshape(-1, 1)
 
     def compute_torque(self):
@@ -218,10 +212,11 @@ class InverseDynamic(InverseKinematic):
         mujoco.mj_fullM(self.model, M, self.data.qM)  # Mass matrix
         B = self.data.qfrc_bias.reshape(-1, 1)  # Nonlinear terms
         S = np.hstack((np.zeros((self.model.nv - 6, 6)), np.eye(self.model.nv - 6)))
-        self.ErrorPlotting.tau_data.append(self.tau)
+        
         # print(f"Fc_sol shape: {Fc_sol.shape}, ddxc_sol shape: {ddxc_sol.shape}, ddq_sol shape: {ddq_sol.shape}, M shape: {M.shape}, B shape: {B.shape}, S shape: {np.linalg.pinv(S.T).shape}, Jc shape: { self.Jc_id .shape}")
         self.tau = np.linalg.pinv(S.T) @ (M @ (np.vstack((np.zeros((6, 1)), self.ddq_cmd)) + ddq_sol) + B - self.Jc_id.T @ Fc_sol)
         self.tau = np.clip(self.tau, self.tau_min, self.tau_max)
+        self.ErrorPlotting.tau_data_id.append(self.tau)
         # print(f"tau shape: {self.tau.T}")
         
     def send_command_api(self):
@@ -242,6 +237,29 @@ class InverseDynamic(InverseKinematic):
  
     def plot_error_id(self):
         
+
+        self.ErrorPlotting.plot_q_error(self.ErrorPlotting.q_desired_data, 
+                                        self.ErrorPlotting.q_current_data,
+                                        self.ErrorPlotting.q_error_data,
+                                        "qd_send")
+        self.ErrorPlotting.plot_q_error(self.ErrorPlotting.dq_desired_data, 
+                                        self.ErrorPlotting.dq_current_data,
+                                        self.ErrorPlotting.dq_error_data,
+                                        "dqd_send")
+        self.ErrorPlotting.plot_q_error(self.ErrorPlotting.ddq_desired_data,
+                                        self.ErrorPlotting.ddq_current_data,
+                                        self.ErrorPlotting.ddq_error_data,
+                                        "ddqd_send")
+     
+        self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xb_data, 
+                                                         self.ErrorPlotting.x2_data,
+                                                         self.ErrorPlotting.dx_b_data, 
+                                                         "Body")
+        self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xw_data, 
+                                                         self.ErrorPlotting.x3_data, 
+                                                         self.ErrorPlotting.dx_sw_data, 
+                                                         "Swing")
+        
         self.ErrorPlotting.plot_state_error_trajectories(self.ErrorPlotting.xb_dot_data, 
                  self.ErrorPlotting.x2_dot_data,
                  self.ErrorPlotting.dx_b_dot_data, 
@@ -250,22 +268,16 @@ class InverseDynamic(InverseKinematic):
                  self.ErrorPlotting.x3_dot_data, 
                  self.ErrorPlotting.dx_sw_dot_data, 
                  "Swing_Velocity .")
-        self.ErrorPlotting.plot_torque(self.ErrorPlotting.tau_data,"joint toque")
-        self.ErrorPlotting.plot_contact_acceleration(self.ErrorPlotting.ddxc_data, "contact foot acceleration")
-        self.ErrorPlotting.plot_contact_force(self.ErrorPlotting.Fc_data, "Fc")
+        
+        self.ErrorPlotting.plot_torque(self.ErrorPlotting.tau_data_ik, self.ErrorPlotting.tau_data_id, "joint toque Compare")
+        # self.ErrorPlotting.plot_contact_acceleration(self.ErrorPlotting.ddxc_data, "contact foot acceleration")
+        # self.ErrorPlotting.plot_contact_force(self.ErrorPlotting.Fc_data, "Fc")
         self.ErrorPlotting.plot_full_body_state(self.ErrorPlotting.ddq_diff_data, "ddq error")
    
-        self.ErrorPlotting.plot_torque(self.ErrorPlotting.torque_sensor_data,"joint toque sensor")
+        # self.ErrorPlotting.plot_torque(self.ErrorPlotting.torque_sensor_data,"joint toque sensor")
         plt.show()
 
-    def state_machine(self, phase):
-        self.WF = sparse.csc_matrix(np.diag([5, 5, 1, 5, 5, 1]))
-        self.Wc = sparse.csc_matrix(np.diag([10**3, 10**3, 10**3, 10**3, 10**3, 10**3]))
-        self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 50)
-        # self.WF = sparse.csc_matrix(np.diag([1, 1, 10, 1, 1, 10])* 10)
-        # self.Wc = sparse.csc_matrix(np.diag([1,1,10,1,1,10]) * 1000)
-        # self.Wddq = sparse.csc_matrix(np.eye(self.ddq_dim) * 100)
-        # self.Wddq = sparse.csc_matrix(np.diag([np.zeros(6), np.ones(12)]) * 10)
+
 
 # if __name__ == "__main__":
 #     ChannelFactoryInitialize(1, "lo")
