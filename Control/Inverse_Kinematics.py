@@ -1,8 +1,8 @@
 import mujoco
 import numpy as np
 
-from Go2_Controller.Control.Forward_Kinematics import ForwardKinematic
-from Go2_Controller.Interface.Send_motor_cmd import send_motor_commands
+from Control.Forward_Kinematics import ForwardKinematic
+from Interface.Send_motor_cmd import send_motor_commands
 from error_plotting import ErrorPlotting
 import matplotlib.pyplot as plt
 import time

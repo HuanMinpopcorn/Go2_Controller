@@ -1,0 +1,82 @@
+import matplotlib.pyplot as plt
+import time
+
+class Curve:
+    def __init__(self):
+        self.x = []
+        self.y = []
+
+    def printXY(self, xRough, pointNum):
+        for i, x_val in enumerate(self.x):
+            if xRough < x_val:
+                for j in range(pointNum):
+                    print(f'  X: {self.x[i+j]}, Y: {self.y[i+j]}')
+                break
+
+class Plot:
+    def __init__(self, name, count, labelVec):
+        self.plotName = name
+        self.curveCount = count
+        self.labels = labelVec
+        self.curves = [Curve() for _ in range(count)]
+        self.curveName2ID = {label: i for i, label in enumerate(labelVec)}
+
+    def getX(self, startT):
+        return (time.time() * 1e3) - startT
+
+    def printXY(self, curveName, xRough, pointNum):
+        print(f'[DEBUG] Plot: {self.plotName}, Curve: {curveName}')
+        self.curves[self.curveName2ID[curveName]].printXY(xRough, pointNum)
+
+class PyPlot:
+    def __init__(self):
+        self._plotCount = 0
+        self._plotName2ID = {}
+        self._plots = []
+        self.start = False
+        self.startT = 0.0
+
+    def _checkStart(self):
+        if not self.start:
+            self.start = True
+            self.startT = time.time() * 1e3
+
+    def addPlot(self, plotName, curveCount, labelVec=None):
+        if labelVec is None:
+            labelVec = [str(i + 1) for i in range(curveCount)]
+        if plotName not in self._plotName2ID:
+            self._plotName2ID[plotName] = self._plotCount
+            self._plots.append(Plot(plotName, curveCount, labelVec))
+            self._plotCount += 1
+        else:
+            print(f'[ERROR] Already has same Plot: {plotName}')
+            exit(-1)
+
+    def showPlot(self, plotName):
+        plot = self._getPlotPtr(plotName)
+        plt.figure()
+        plt.title(plot.plotName)
+        for i, curve in enumerate(plot.curves):
+            plt.plot(curve.x, curve.y, label=plot.labels[i])
+        plt.legend()
+        plt.show()
+
+    def showPlotAll(self):
+        for plot in self._plots:
+            plt.figure()
+            plt.title(plot.plotName)
+            for i, curve in enumerate(plot.curves):
+                plt.plot(curve.x, curve.y, label=plot.labels[i])
+            plt.legend()
+        plt.show()
+
+    def addFrame(self, plotName, x, value):
+        plot = self._getPlotPtr(plotName)
+        plot.curves[0].x.append(x)
+        plot.curves[0].y.append(value)
+
+    def _getPlotPtr(self, plotName):
+        if plotName not in self._plotName2ID:
+            print(f'[ERROR] Plot {plotName} does not exist')
+            exit(-1)
+        return self._plots[self._plotName2ID[plotName]]

@@ -2,7 +2,7 @@ import numpy as np
 from scipy import sparse
 import time
 
-from Go2_Controller.Control.Inverse_Kinematics import InverseKinematic
+from Control.Inverse_Kinematics import InverseKinematic
 
 import osqp
 import mujoco

@@ -2,15 +2,15 @@ from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowState_
 from unitree_sdk2py.idl.default import unitree_go_msg_dds__LowState_
 from unitree_sdk2py.utils.crc import CRC
 from unitree_sdk2py.idl.unitree_go.msg.dds_ import LowCmd_
-from interface.IOInterface import IOInterface
-from interface.CmdPanel import CmdPanel
-from common.unitreeRobot import QuadrupedRobot
+# from interface.IOInterface import IOInterface
+# from interface.CmdPanel import CmdPanel
+# from common.unitreeRobot import QuadrupedRobot
 from Gait.WaveGenerator import WaveGenerator
 import numpy as np
 
 # Optional debug import
 try:
-    from common.PyPlot import PyPlot
+    from Common.PyPlot import PyPlot
     COMPILE_DEBUG = True
 except ImportError:
     COMPILE_DEBUG = False
@@ -22,7 +22,7 @@ class WaveStatus:
 
 class CtrlComponents:
     def __init__(self, ioInter: IOInterface):
-        self.ioInter = ioInter
+        self.ioInter = "lo"
         self.lowCmd = LowCmd_()
         self.lowState = LowState_()
         self.contact = np.zeros(4, dtype=int)

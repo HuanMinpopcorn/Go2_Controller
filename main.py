@@ -1,5 +1,5 @@
 
-from Go2_Controller.Control.Inverse_Dynamic import InverseDynamic     
+from Control.Inverse_Dynamic import InverseDynamic     
 import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm

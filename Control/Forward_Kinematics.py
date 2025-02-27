@@ -4,11 +4,11 @@ import threading
 import time
 
 from unitree_sdk2py.core.channel import ChannelFactoryInitialize
-from Go2_Controller.Interface.read_JointState import read_JointState
-from Go2_Controller.Interface.read_TaskSpace import read_TaskSpace
+from Interface.read_JointState import read_JointState
+from Interface.read_TaskSpace import read_TaskSpace
 from Simulation import config
 
-from Go2_Controller.Interface.Send_motor_cmd import send_motor_commands
+from Interface.Send_motor_cmd import send_motor_commands
 
 class ForwardKinematic:
     def __init__(self, xml_path=config.ROBOT_SCENE):
