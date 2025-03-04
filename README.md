@@ -1,9 +1,3 @@
 # Go2 Controller
 
-## Features
-1. Forward Kinematics (FK)
-2. Inverse Kinematics (IK)
-3. Low-level control command
-4. PhysicalSim: Open the viewer from a class
-5. read_Jointstate: read topic "rt/lowstate"
-6. read_Taskspace: read topic "rt/sportmodestate"
+This repo is learning process about quadredal robot controller algorithm. I basically used the robot unitree Go2. this repo would record my step by step how to construct a controller (WBC, Centroidal dynamic, Balance control ). 
