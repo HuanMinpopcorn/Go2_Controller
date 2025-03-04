@@ -3,13 +3,15 @@
 ## Overview
 The **Go2_Controller** repository provides a controller for the Unitree Go2 quadruped robot. This project includes functionalities such as forward and inverse kinematics, low-level control commands, physical simulation, and state monitoring to facilitate robot locomotion and task execution.
 
+
 ## Features
 - **Forward Kinematics (FK)**: Computes the robot's end-effector position and orientation based on joint configurations.
-- **Inverse Kinematics (IK)**: Determines the joint parameters required for a desired end-effector pose.
+- **Inverse Kinematics (IK)**: Determines the joint parameters required for a desired end-effector pose. [WBC_Notes](Notes/WBC_calc.md)
 - **Low-Level Control Commands**: Provides direct control over the robot’s actuators.
 - **Physical Simulation**: Implements a simulation viewer for debugging and testing robot behaviors.
 - **Joint State Monitoring**: Reads joint states from the `rt/lowstate` topic.
 - **Task Space Monitoring**: Tracks task space status through the `rt/sportmodestate` topic.
+- **Gait Generator** : Compute the gait wave and foot placement. [Gait_Notes](Notes/gait_calc.md)
 
 ## Directory Structure
 ```
@@ -60,6 +62,13 @@ To test reference trajectories:
 ```bash
 python reference_trajectory.py
 ```
+## Demo Video 
+
+[![Go2 Controller Demo](https://img.youtube.com/vi/1gU5A_v00dM/0.jpg)](https://youtu.be/1gU5A_v00dM)
+
+
+
+
 
 ## Contributing
 Contributions are welcome! If you find a bug or have a feature request, feel free to open an issue or submit a pull request.

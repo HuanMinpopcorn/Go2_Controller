@@ -1,4 +1,0 @@
-1. edit the XML file to add box block and give the inertia properties 
-2. add the rope composite to connect the robot and box 
-3. find out the central mass of robots
-4. 
