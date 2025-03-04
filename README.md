@@ -36,7 +36,9 @@ Ensure you have the following dependencies installed:
 - NumPy
 - SciPy
 - Matplotlib
-- ROS2 Humble (for interfacing with Go2)
+- Unitree_python_SDK
+- Unitree_Mujoco 
+- Unitree_ROS2 
 
 ### Setup
 Clone the repository:
